@@ -68,9 +68,13 @@ for (const endpoint of [
 assert(project.name !== 'Proyecto en análisis', 'El analisis de mercado no sugirio/aplico nombre comercial.');
 assert(project.marketResearch?.recommendedTitle, 'Falta titulo comercial recomendado.');
 assert(project.marketResearch?.suggestedTitles, 'Faltan alternativas de titulo comercial.');
-const titles = JSON.parse(project.marketResearch.suggestedTitles).map((item) => item.title);
-assert(titles.every((title) => title.length <= 70), 'Hay titulos sugeridos demasiado largos para uso comercial.');
 const titleOptions = JSON.parse(project.marketResearch.suggestedTitles);
+const titles = titleOptions
+  .map((item) => (typeof item === 'string' ? item : item?.title))
+  .filter((title) => typeof title === 'string' && title.trim())
+  .map((title) => title.trim());
+assert(titles.length >= 3, 'Faltan alternativas comerciales validas.');
+assert(titles.every((title) => title.length <= 70), 'Hay titulos sugeridos demasiado largos para uso comercial.');
 assert(titleOptions.every((item) => item.language && item.market && item.adaptation), 'Los titulos deben incluir idioma, mercado y adaptacion.');
 assert(project.chapterPlans.length >= 6, 'El plan editorial debe tener estructura amplia.');
 assert(project.manuscriptBlocks.length >= 6, 'Faltan bloques de manuscrito.');

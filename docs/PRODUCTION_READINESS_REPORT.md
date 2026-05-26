@@ -14,9 +14,11 @@ Cervantes está listo como herramienta local privada para producir, auditar, pre
 - IA vía OpenAI cuando hay API key, con fallback a plantillas.
 - Research asistido/verificable por el usuario.
 - Assets visuales generados como placeholders/prompts aprobables.
-- Vista previa integrada PDF/EPUB/package.
+- Maquetación editorial visual premium local con páginas, assets SVG, apertura de capítulo, figuras y worksheets.
+- Vista previa integrada PDF/EPUB/package con descarga de preview PDF.
 - Exportación MD, DOCX, PDF, EPUB y ZIP final.
 - ZIP final con archivos KDP/Gumroad requeridos.
+- QA visual para detectar salida plana, marcas Markdown, falta de assets y fallback HTML.
 - Backup local de proyecto/workspace.
 - Verificadores automatizados premium y producción.
 
@@ -36,6 +38,7 @@ npm run build
 npm test
 node scripts/verify-premium.mjs
 node scripts/verify-production.mjs
+node scripts/verify-visual-layout.mjs
 ```
 
 Último estado verificado: `GO_OPERATIVO_LOCAL_PRIVADO`.

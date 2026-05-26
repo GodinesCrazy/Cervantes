@@ -133,6 +133,7 @@ export async function gateReport(projectId: number) {
       publishingChecklist: true,
       formatBuilds: true,
       exportPackages: true,
+      editorialLayouts: { orderBy: { createdAt: 'desc' }, take: 1 },
     },
   });
   if (!project) throw new Error('Project not found');
@@ -148,6 +149,9 @@ export async function gateReport(projectId: number) {
   if (project.recoveryReports.length === 0) blockers.push('Falta reporte de recuperacion y ensamblaje.');
   if (project.visualAssets.length === 0) blockers.push('Faltan assets visuales planificados.');
   if (project.visualAssets.some((asset) => asset.approvalStatus !== 'APPROVED')) blockers.push('Hay assets visuales sin aprobar.');
+  const latestLayout = project.editorialLayouts[0];
+  if (!latestLayout) blockers.push('Falta render editorial visual.');
+  if (latestLayout && latestLayout.status !== 'APPROVED') blockers.push('Calidad visual necesita revision.');
   if (!project.metadataPackage?.commercialTitle) blockers.push('Falta metadata comercial.');
   if (!project.publishingChecklist?.aiDeclaration) blockers.push('Falta declaracion de IA.');
 

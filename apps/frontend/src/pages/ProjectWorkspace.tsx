@@ -641,11 +641,15 @@ function cleanPrompt(prompt?: string | null) {
 function visualAssetSummary(asset: VisualAsset) {
   const labels: Record<string, string> = {
     cover: 'Portada frontal separada para KDP/Gumroad',
+    'chapter-opener': 'Lámina de apertura para capítulos',
     figure: 'Figura interna para explicar el método visualmente',
+    separator: 'Separadores y ornamentos para páginas de lectura',
+    icons: 'Iconografía editorial para índice y resúmenes',
     mockup: 'Imagen comercial para página de venta',
     worksheet: 'Hoja imprimible de ejercicios o checklist',
   };
-  return labels[asset.assetType] || 'Asset visual del paquete editorial';
+  const role = asset.layoutRole ? ` · ${asset.layoutRole}` : '';
+  return `${labels[asset.assetType] || 'Asset visual del paquete editorial'}${role}`;
 }
 
 function VisualAssetPreview({ projectId, asset, cacheKey, large = false }: { projectId: number; asset: VisualAsset; cacheKey: string; large?: boolean }) {
@@ -732,18 +736,66 @@ function WorksheetFallback() {
 }
 
 export function PreviewPage() {
-  const { project } = useProjectContext();
+  const { project, showToast } = useProjectContext();
   const [mode, setMode] = useState<'pdf' | 'epub' | 'package'>('pdf');
+  const [busy, setBusy] = useState(false);
+  const [layoutReport, setLayoutReport] = useState<Record<string, unknown> | null>(null);
+  const [zoom, setZoom] = useState(100);
+
+  async function regenerateLayout() {
+    setBusy(true);
+    try {
+      const result = await api.renderLayout(project.id);
+      setLayoutReport((result.report as Record<string, unknown>) || result);
+      showToast('Maquetación editorial regenerada', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error al regenerar layout', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    api.layoutReport(project.id).then(setLayoutReport).catch(() => setLayoutReport(null));
+  }, [project.id]);
+
   return (
     <>
       <Header title="Vista previa del ebook" project={project} />
-      <div className="tabs">
-        <button className={mode === 'pdf' ? 'active' : ''} onClick={() => setMode('pdf')}>PDF Preview</button>
-        <button className={mode === 'epub' ? 'active' : ''} onClick={() => setMode('epub')}>EPUB/Reflow Preview</button>
-        <button className={mode === 'package' ? 'active' : ''} onClick={() => setMode('package')}>Publishing Package</button>
+      <div className="previewToolbar">
+        <div className="tabs">
+          <button className={mode === 'pdf' ? 'active' : ''} onClick={() => setMode('pdf')}>PDF Preview</button>
+          <button className={mode === 'epub' ? 'active' : ''} onClick={() => setMode('epub')}>EPUB/Reflow Preview</button>
+          <button className={mode === 'package' ? 'active' : ''} onClick={() => setMode('package')}>Publishing Package</button>
+        </div>
+        <a className="button primary" href={`/api/projects/${project.id}/preview.pdf`}>
+          Descargar preview PDF
+        </a>
+        <button className="button" onClick={regenerateLayout} disabled={busy}>
+          {busy && <span className="spinner" />}
+          Regenerar maquetación
+        </button>
       </div>
+      <section className="previewStatus">
+        <div>
+          <span>Calidad visual</span>
+          <strong>{String(layoutReport?.status || 'Pendiente')}</strong>
+        </div>
+        <div>
+          <span>Páginas</span>
+          <strong>{String(layoutReport?.pageCount || '-')}</strong>
+        </div>
+        <div>
+          <span>Assets</span>
+          <strong>{String(layoutReport?.assetCount || '-')}</strong>
+        </div>
+        <label>
+          Zoom
+          <input type="range" min={70} max={130} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
+        </label>
+      </section>
       {mode !== 'package' ? (
-        <section className={mode === 'epub' ? 'previewShell reflow' : 'previewShell'}>
+        <section className={mode === 'epub' ? 'previewShell reflow' : 'previewShell'} style={{ ['--preview-zoom' as string]: `${zoom}%` }}>
           <iframe title={`Vista previa de ${project.name}`} src={`/api/projects/${project.id}/preview`} />
         </section>
       ) : (
@@ -997,6 +1049,19 @@ export function QualityPage() {
         <PlatformCard title="Gumroad" data={(quality?.gumroad as Record<string, unknown> | undefined)} enabled={hasCommercialMetadata(project) && hasPublishingChecklist(project)} />
       </section>
 
+      <section className="panel visualQualityPanel">
+        <div className="panelHeader">
+          <div>
+            <h2>Calidad visual</h2>
+            <p className="muted">Verifica que el ebook tenga maquetación, páginas, assets y ausencia de marcas IA/Markdown.</p>
+          </div>
+          <span className={`qualityBadge ${(quality?.visual as Record<string, unknown> | undefined)?.status === 'APPROVED' ? 'approved' : 'needs'}`}>
+            {String((quality?.visual as Record<string, unknown> | undefined)?.status || 'PENDING')}
+          </span>
+        </div>
+        <VisualQualityCard data={quality?.visual as Record<string, unknown> | undefined} />
+      </section>
+
       <section className="panel">
         <div className="panelHeader">
           <div>
@@ -1202,6 +1267,39 @@ function PlatformCard({ title, data, enabled }: { title: string; data?: Record<s
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function VisualQualityCard({ data }: { data?: Record<string, unknown> }) {
+  const checks = (data?.checks || {}) as Record<string, boolean>;
+  const issues = Array.isArray(data?.issues) ? data.issues.map(String) : [];
+  return (
+    <div className="visualQualityGrid">
+      <div>
+        <span>Score</span>
+        <strong>{String(data?.score || '-')}</strong>
+      </div>
+      <div>
+        <span>Páginas</span>
+        <strong>{String(data?.pageCount || '-')}</strong>
+      </div>
+      <div>
+        <span>Assets</span>
+        <strong>{String(data?.assetCount || '-')}</strong>
+      </div>
+      {Object.entries(checks).map(([key, ok]) => (
+        <div className={ok ? 'ok' : 'missing'} key={key}>
+          <span>{formatQualityLabel(key)}</span>
+          <strong>{ok ? 'OK' : 'Falta'}</strong>
+        </div>
+      ))}
+      {issues.map((issue) => (
+        <div className="missing" key={issue}>
+          <span>Revisión</span>
+          <strong>{issue}</strong>
+        </div>
+      ))}
     </div>
   );
 }

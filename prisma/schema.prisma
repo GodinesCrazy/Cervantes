@@ -43,6 +43,7 @@ model Project {
   auditReports        AuditReport[]
   recoveryReports     RecoveryReport[]
   visualAssets        VisualAsset[]
+  editorialLayouts    EditorialLayout[]
   formatBuilds        FormatBuild[]
   metadataPackage     MetadataPackage?
   publishingChecklist PublishingChecklist?
@@ -331,12 +332,34 @@ model VisualAsset {
   status      String   @default("PENDING")
   approvalStatus String @default("PENDING")
   replacementPath String?
+  layoutRole  String?
+  themeKey    String?
+  pagePlacement String?
+  variant     Int      @default(0)
+  qualityStatus String @default("PENDING")
   aiGenerated Boolean  @default(false)
   rights      String?
   approvedAt  DateTime?
   createdAt   DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model EditorialLayout {
+  id               Int      @id @default(autoincrement())
+  projectId         Int
+  themeKey          String   @default("premium-editorial")
+  pageTemplates     String?
+  renderedHtmlPath  String?
+  visualReport      String?
+  status            String   @default("PENDING")
+  lastRenderedAt    DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }
 
 model FormatBuild {

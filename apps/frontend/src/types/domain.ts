@@ -27,6 +27,7 @@ export type Project = {
   aiUsageLogs?: Record<string, unknown>[];
   sourceNotes?: Record<string, unknown>[];
   visualAssets?: VisualAsset[];
+  editorialLayouts?: Record<string, unknown>[];
   publicationReadiness?: Record<string, unknown> | null;
   backupRecords?: Record<string, unknown>[];
 };
@@ -93,4 +94,9 @@ export type VisualAsset = {
   approvalStatus: string;
   rights?: string | null;
   replacementPath?: string | null;
+  layoutRole?: string | null;
+  themeKey?: string | null;
+  pagePlacement?: string | null;
+  variant?: number | null;
+  qualityStatus?: string | null;
 };

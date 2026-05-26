@@ -15,6 +15,7 @@ import {
   visualBibleTemplate,
 } from '../engines/templates';
 import { ExportService } from '../exporters/exportService';
+import { EditorialLayoutService } from '../editorial/editorialLayoutService';
 import { createBackup } from '../services/backupService';
 import {
   approveGeneratedGate,
@@ -27,6 +28,7 @@ import {
 
 const router = Router();
 const exporter = new ExportService();
+const layoutService = new EditorialLayoutService();
 
 function slugify(value: string) {
   return value
@@ -113,12 +115,19 @@ async function logAI(projectId: number, engine: string, generated: { provider: s
 async function ensureRecoveryEditorialStructure(projectId: number) {
   const blocks = await prisma.manuscriptBlock.findMany({ where: { projectId }, orderBy: { order: 'asc' } });
   for (const block of blocks) {
-    const content = block.content || `# ${block.blockTitle}`;
-    if (content.includes('## Tabla de decisión') || content.includes('| Criterio |')) continue;
+    let content = block.content || `# ${block.blockTitle}`;
+    const additions: string[] = [];
 
-    const enhanced = `${content.trim()}
+    if (!content.includes('![Figura editorial')) {
+      additions.push(`## Figura editorial
 
-## Tabla de decisión
+![Figura editorial: mapa visual del método](assets/figure-map.svg)
+
+Esta lámina resume la relación entre observación, decisión y acción práctica para que el lector no dependa solo de texto corrido.`);
+    }
+
+    if (!content.includes('## Tabla de decisión') && !content.includes('| Criterio |')) {
+      additions.push(`## Tabla de decisión
 
 | Criterio | Señal práctica | Acción recomendada |
 |---|---|---|
@@ -128,7 +137,24 @@ async function ensureRecoveryEditorialStructure(projectId: number) {
 
 ## Cierre accionable
 
-Antes de pasar al siguiente capítulo, el lector debe identificar una decisión concreta, una señal observable y una acción segura para aplicar durante la semana.
+Antes de pasar al siguiente capítulo, el lector debe identificar una decisión concreta, una señal observable y una acción segura para aplicar durante la semana.`);
+    }
+
+    if (content.split(/\s+/).filter(Boolean).length < 260) {
+      additions.push(`## Desarrollo editorial aplicado
+
+Para que este capítulo funcione como una pieza de libro y no como una respuesta breve, el lector necesita una secuencia completa: primero reconocer el contexto, luego distinguir las señales importantes, después elegir una acción proporcional y finalmente revisar el resultado. En la práctica, esto significa evitar recomendaciones aisladas y convertir cada idea en un pequeño método repetible.
+
+La lectura debe avanzar con una lógica clara. Una buena decisión nace de observar, comparar y actuar con calma. Cuando el tema toca bienestar, aprendizaje, cuidado personal o hábitos cotidianos, conviene privilegiar la seguridad, la constancia y la revisión periódica antes que una promesa rápida. Esa es la diferencia entre información suelta y orientación editorial útil.
+
+Al cerrar esta sección, el lector debería poder explicar con sus propias palabras qué debe mirar, qué error frecuente debe evitar y cuál es el siguiente paso razonable. Si no puede hacerlo, la recomendación debe simplificarse hasta quedar en una acción concreta, medible y fácil de repetir durante la semana.`);
+    }
+
+    if (additions.length === 0) continue;
+
+    const enhanced = `${content.trim()}
+
+${additions.join('\n\n')}
 `;
 
     await prisma.manuscriptBlock.update({
@@ -179,6 +205,89 @@ function textValue(value: unknown) {
 function numberValue(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return value
+      .split(/\r?\n|;/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+}
+
+function normalizeSuggestedTitles(raw: unknown, recommendedTitle: string, topic: string) {
+  const baseTopic = topic
+    .replace(/^un ebook premium sobre\s+/i, '')
+    .replace(/^ebook premium sobre\s+/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  const topicLabel = baseTopic ? baseTopic.charAt(0).toUpperCase() + baseTopic.slice(1) : 'Metodo visual';
+  const sourceItems = parseJsonArray(raw);
+  const fallback = [
+    {
+      title: recommendedTitle,
+      language: 'es',
+      market: 'Spanish-first digital publishing',
+      adaptation: 'Nombre principal elegido por claridad comercial, promesa visual y baja friccion de lanzamiento.',
+    },
+    {
+      title: `${topicLabel}: Guia Practica Visual`,
+      language: 'es',
+      market: 'Spanish beginner SEO',
+      adaptation: 'Alternativa directa para busqueda en marketplaces y lectores principiantes.',
+    },
+    {
+      title: `El Metodo Visual de ${topicLabel}`,
+      language: 'es',
+      market: 'Spanish premium niche',
+      adaptation: 'Alternativa mas editorial para portada, posicionamiento premium y recordacion.',
+    },
+    {
+      title: `${topicLabel} Made Visual`,
+      language: 'en',
+      market: 'English expansion',
+      adaptation: 'Titulo localizado para expansion; adapta promesa y lenguaje en vez de traducir literalmente.',
+    },
+  ];
+
+  const compactTitle = (value: string) => {
+    const clean = value.replace(/\s+/g, ' ').trim();
+    if (clean.length <= 70) return clean;
+    const clipped = clean.slice(0, 70);
+    return (clipped.includes(' ') ? clipped.replace(/\s+\S*$/, '') : clipped).replace(/[:,-]\s*$/, '').trim();
+  };
+
+  const normalized = sourceItems.map((item, index) => {
+    const title = typeof item === 'string' ? item : textValue((item as { title?: unknown } | null)?.title);
+    return {
+      title: compactTitle(title || fallback[index % fallback.length].title),
+      language: textValue((item as { language?: unknown } | null)?.language) || fallback[index % fallback.length].language,
+      market: textValue((item as { market?: unknown } | null)?.market) || fallback[index % fallback.length].market,
+      adaptation: textValue((item as { adaptation?: unknown } | null)?.adaptation) || fallback[index % fallback.length].adaptation,
+      rationale:
+        textValue((item as { rationale?: unknown; promise?: unknown } | null)?.rationale) ||
+        textValue((item as { promise?: unknown } | null)?.promise) ||
+        'Opcion comparada por claridad, diferenciacion visual y ajuste a plataforma.',
+    };
+  });
+
+  const seen = new Set<string>();
+  const complete = [...normalized, ...fallback.map((item) => ({ ...item, title: compactTitle(item.title) }))]
+    .filter((item) => {
+      const key = item.title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5);
+
+  return JSON.stringify(complete);
 }
 
 function normalizeMetadataPackage(raw: Record<string, unknown>, projectName: string) {
@@ -325,11 +434,50 @@ router.get('/:id/preview', async (req, res, next) => {
   }
 });
 
+router.get('/:id/preview.pdf', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const build = await exporter.exportFormat(projectId, 'pdf');
+    if (!build.filePath) throw new Error('PDF preview was not generated');
+    res.download(build.filePath, 'ebook_preview.pdf');
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/layout/render', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const rendered = await layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets` });
+    await upsertGate(projectId, 'preview', rendered.report.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Maquetacion visual: ${rendered.report.status}`);
+    res.json({
+      status: rendered.report.status,
+      htmlPath: rendered.htmlPath,
+      report: rendered.report,
+      pages: rendered.layout.pages.map((page) => ({ id: page.id, type: page.type, title: page.title, assetRole: page.assetRole })),
+      assets: Object.keys(rendered.layout.assets),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/layout/report', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const report = (await layoutService.latestReport(projectId)) || (await layoutService.renderProject(projectId, { persist: true })).report;
+    res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id/quality', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
     const markdown = await exporter.assembleMarkdown(projectId);
     const manuscript = inspectManuscript(markdown);
+    const visual = (await layoutService.latestReport(projectId)) || (await layoutService.renderProject(projectId, { persist: true })).report;
     const gates = await gateReport(projectId);
     const project = await projectOr404(projectId);
     const latestPdf = project.formatBuilds.find((build) => build.format === 'pdf');
@@ -352,8 +500,8 @@ router.get('/:id/quality', async (req, res, next) => {
       mockupPrompts: project.visualBible?.imagePrompts as string | undefined,
       disclaimer: project.publishingChecklist?.copyrightStatus as string | undefined,
     });
-    const status = manuscript.status === 'APPROVED' && gates.status === 'APPROVED' && kdp.status === 'APPROVED' && gumroad.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
-    const report = { status, manuscript, gates, kdp, gumroad };
+    const status = manuscript.status === 'APPROVED' && gates.status === 'APPROVED' && kdp.status === 'APPROVED' && gumroad.status === 'APPROVED' && visual.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
+    const report = { status, manuscript, gates, kdp, gumroad, visual };
     await prisma.publicationReadiness.upsert({
       where: { projectId },
       update: {
@@ -544,6 +692,13 @@ router.post('/:id/market-research', async (req, res, next) => {
         dataToSave[key] = String(dataToSave[key]);
       }
     }
+    const recommendedTitle = String(dataToSave.recommendedTitle || project.name || 'Titulo comercial pendiente');
+    dataToSave.recommendedTitle = recommendedTitle;
+    dataToSave.suggestedTitles = normalizeSuggestedTitles(dataToSave.suggestedTitles, recommendedTitle, ideaContext);
+    dataToSave.titleRationale =
+      dataToSave.titleRationale ||
+      'El nombre se selecciona despues de evaluar idioma, mercado, promesa comercial, competencia y posibilidades de expansion localizada.';
+    dataToSave.language = dataToSave.language || 'es';
 
     const data = { ...dataToSave, projectId } as Prisma.MarketResearchUncheckedCreateInput & {
       recommendedTitle?: string;
@@ -825,14 +980,17 @@ router.post('/:id/blocks', async (req, res, next) => {
         });
       }
       const visualAssets = [
-        { assetType: 'cover', name: 'Portada frontal', description: 'Portada premium separada para KDP/Gumroad', prompt: project.visualBible?.imagePrompts || 'Portada editorial premium', aiGenerated: true },
-        { assetType: 'figure', name: 'Mapa conceptual', description: 'Figura interna principal', prompt: 'Figura editorial limpia con mapa de promesa-metodo-resultado', aiGenerated: true },
-        { assetType: 'mockup', name: 'Mockup comercial', description: 'Prompt para imagen de producto Gumroad', prompt: '3D ebook mockup, premium editorial, clean background', aiGenerated: true },
-        { assetType: 'worksheet', name: 'Worksheet imprimible', description: 'Hoja de ejercicios bonus', prompt: 'Printable worksheet page, premium editorial layout', aiGenerated: true },
+        { assetType: 'cover', layoutRole: 'cover', pagePlacement: 'front-cover', name: 'Portada frontal', description: 'Portada premium separada para KDP/Gumroad', prompt: project.visualBible?.imagePrompts || 'Portada editorial premium', aiGenerated: true },
+        { assetType: 'chapter-opener', layoutRole: 'chapter-opener', pagePlacement: 'chapter-start', name: 'Apertura de capítulo', description: 'Lámina visual para inicio de capítulo', prompt: 'Chapter opener premium editorial plate', aiGenerated: true },
+        { assetType: 'figure', layoutRole: 'figure-map', pagePlacement: 'method-page', name: 'Mapa conceptual', description: 'Figura interna principal', prompt: 'Figura editorial limpia con mapa de promesa-metodo-resultado', aiGenerated: true },
+        { assetType: 'separator', layoutRole: 'separator', pagePlacement: 'reading-pages', name: 'Separadores editoriales', description: 'Ornamentos y divisores visuales consistentes', prompt: 'Editorial separator ornaments', aiGenerated: true },
+        { assetType: 'icons', layoutRole: 'icons', pagePlacement: 'toc-and-summary', name: 'Iconografía editorial', description: 'Sistema de iconos para índice y secciones', prompt: 'Premium editorial icon strip', aiGenerated: true },
+        { assetType: 'mockup', layoutRole: 'mockup', pagePlacement: 'credits-package', name: 'Mockup comercial', description: 'Imagen de producto Gumroad', prompt: '3D ebook mockup, premium editorial, clean background', aiGenerated: true },
+        { assetType: 'worksheet', layoutRole: 'worksheet', pagePlacement: 'appendix', name: 'Worksheet imprimible', description: 'Hoja de ejercicios bonus', prompt: 'Printable worksheet page, premium editorial layout', aiGenerated: true },
       ];
       await prisma.visualAsset.deleteMany({ where: { projectId } });
       for (const asset of visualAssets) {
-        await prisma.visualAsset.create({ data: { ...asset, projectId, status: 'GENERATED', approvalStatus: 'PENDING', rights: 'AI-assisted placeholder; approve or replace before publication.' } });
+        await prisma.visualAsset.create({ data: { ...asset, projectId, themeKey: 'premium-editorial', qualityStatus: 'PENDING', status: 'GENERATED', approvalStatus: 'PENDING', rights: 'SVG editorial local generado por Cervantes; aprobable o reemplazable antes de publicar.' } });
       }
     } else if (req.body.blockTitle) {
       await prisma.manuscriptBlock.create({ data: { ...req.body, projectId } });
@@ -1079,6 +1237,7 @@ router.post('/:id/visual-assets/:assetId', async (req, res, next) => {
       data: {
         approvalStatus: req.body.approvalStatus || 'APPROVED',
         status: req.body.status || 'APPROVED',
+        qualityStatus: (req.body.approvalStatus || 'APPROVED') === 'APPROVED' ? 'APPROVED' : 'PENDING',
         replacementPath: req.body.replacementPath,
         rights: req.body.rights,
         approvedAt: (req.body.approvalStatus || 'APPROVED') === 'APPROVED' ? new Date() : undefined,
@@ -1123,6 +1282,8 @@ router.post('/:id/visual-assets/:assetId/regenerate', async (req, res, next) => 
       data: {
         approvalStatus: 'PENDING',
         status: 'GENERATED',
+        qualityStatus: 'PENDING',
+        variant: nextVariant,
         approvedAt: null,
         replacementPath: JSON.stringify({
           variant: nextVariant,

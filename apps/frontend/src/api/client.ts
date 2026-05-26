@@ -37,6 +37,13 @@ export const api = {
       body: JSON.stringify(data),
     }),
   quality: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/quality`),
+  renderLayout: (id: number) =>
+    request<Record<string, unknown>>(`/api/projects/${id}/layout/render`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({}),
+    }),
+  layoutReport: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/layout/report`),
   setGate: (id: number, phase: string, data: Record<string, unknown>) =>
     request<Project>(`/api/projects/${id}/gates/${phase}`, {
       method: 'POST',

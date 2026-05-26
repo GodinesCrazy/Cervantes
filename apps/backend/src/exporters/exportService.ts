@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 import puppeteer from 'puppeteer';
 import { prisma } from '../prisma';
+import { EditorialLayoutService } from '../editorial/editorialLayoutService';
 import { inspectManuscript, validateGumroadPackage, validateKdpPackage } from '../services/qualityService';
 
 const root = path.resolve(__dirname, '../../../..');
@@ -31,6 +32,12 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, '');
 }
 
+function inlineMarkdown(value: string) {
+  return escapeHtml(value)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+}
+
 function svgTitleLines(title: string, x: number, y: number, maxChars = 23, lineHeight = 92) {
   const words = title.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -52,6 +59,8 @@ function svgTitleLines(title: string, x: number, y: number, maxChars = 23, lineH
 }
 
 export class ExportService {
+  private readonly layoutService = new EditorialLayoutService();
+
   private async premiumAssets(projectId: number, title: string) {
     const assetDir = path.join(exportDir, `project-${projectId}-assets`);
     const publicAssetDir = path.join(exportDir, 'assets');
@@ -83,114 +92,35 @@ export class ExportService {
   }
 
   async assembleMarkdown(projectId: number) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: {
-        manuscriptBlocks: { orderBy: { order: 'asc' } },
-        chapterPlans: { orderBy: { order: 'asc' } },
-        marketResearch: true,
-        metadataPackage: true,
-        visualBible: true,
-      },
-    });
-
-    if (!project) throw new Error('Project not found');
-    const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
-    const subtitle = project.metadataPackage?.subtitle || 'Guia premium practica y visual';
-    await this.premiumAssets(projectId, title);
-
-    const body = project.manuscriptBlocks
-      .map((block) => block.content || `# ${block.blockTitle}\n\nPendiente de redacción.`)
-      .join('\n\n---\n\n');
-
-    const toc = project.chapterPlans
-      .map((chapter) => `${chapter.chapterNumber}. ${chapter.title}`)
-      .join('\n');
-
-    return `![Portada editorial](assets/cover.svg)
-
-# ${title}
-
-## ${subtitle}
-
-**Edicion:** Premium MVP Cervantes  
-**Idioma principal:** Español  
-**Idiomas preparados:** Español e ingles editorial base  
-**Declaracion IA:** Contenido asistido por herramientas de IA, estructurado y revisado editorialmente.
-
----
-
-# Front matter
-
-## Promesa editorial
-
-Este libro convierte una idea especializada en una experiencia de lectura clara, visual, aplicable y comercialmente publicable.
-
-## Para quien es
-
-${project.marketResearch?.audience || 'Lectores que buscan una guia practica, confiable y visualmente cuidada.'}
-
-## Como usar este libro
-
-Lee cada capitulo, completa el ejercicio guiado y valida el checklist antes de avanzar.
-
----
-
-# Indice
-
-${toc}
-
----
-
-# Direccion visual
-
-${project.visualBible?.visualConcept || 'Premium editorial contemporaneo'}.
-
-![Sello de calidad editorial](assets/quality-seal.svg)
-
----
-
-${body}
-
----
-
-# Apendice A: Checklist editorial
-
-| Area | Criterio premium | Estado esperado |
-|---|---|---|
-| Estructura | Front matter, capitulos, ejercicios y apendices | Completo |
-| Visual | Portada, figura, sello, tablas y jerarquia | Completo |
-| Comercial | Titulo sugerido, promesa, metadata y precio | Revisado |
-| Compliance | Declaracion IA y claims acotados | Revisado |
-
-# Apendice B: Resumen en ingles
-
-## Editorial promise
-
-This ebook is designed as a premium practical guide with a clear method, visual support, exercises, and publishing-ready metadata.
-
-## Suggested positioning
-
-A concise, visual and actionable guide for readers who want a reliable first path into the topic.
-
-# Creditos visuales
-
-Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-map.svg, quality-seal.svg.
-`;
+    return this.layoutService.assembleManuscript(projectId);
   }
 
   private markdownToHtml(markdown: string, title: string, assetBase = 'assets') {
     const rows = markdown.split('\n');
     let inTable = false;
+    let pageOpen = false;
+    let introDone = false;
     const html: string[] = [];
+    const closePage = () => {
+      if (pageOpen) {
+        html.push('</section>');
+        pageOpen = false;
+      }
+    };
+    const openPage = (className = '') => {
+      closePage();
+      html.push(`<section class="book-page ${className}">`);
+      pageOpen = true;
+    };
     for (const rawLine of rows) {
       const line = rawLine.trim();
       if (line.startsWith('|') && line.endsWith('|')) {
+        if (!pageOpen) openPage();
         if (line.includes('---')) continue;
         const cells = line
           .split('|')
           .slice(1, -1)
-          .map((cell) => `<td>${escapeHtml(cell.trim())}</td>`)
+          .map((cell) => `<td>${inlineMarkdown(cell.trim())}</td>`)
           .join('');
         if (!inTable) {
           html.push('<table>');
@@ -206,75 +136,99 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
       if (!line) {
         html.push('');
       } else if (line.startsWith('![Portada')) {
-        html.push(`<img class="cover" src="${assetBase}/cover.svg" alt="Portada editorial">`);
+        closePage();
+        html.push(`<section class="book-cover"><img class="cover" src="${assetBase}/cover.svg" alt="Portada editorial"></section>`);
       } else if (line.startsWith('![Figura')) {
-        html.push(`<figure><img src="${assetBase}/figure-map.svg" alt="Figura editorial"><figcaption>Figura editorial del metodo.</figcaption></figure>`);
+        if (!pageOpen) openPage('visual-page');
+        html.push(`<figure class="feature-figure"><img src="${assetBase}/figure-map.svg" alt="Figura editorial"><figcaption>Mapa editorial del metodo: observa, prioriza, aplica y registra.</figcaption></figure>`);
       } else if (line.startsWith('![Sello')) {
-        html.push(`<img class="seal" src="${assetBase}/quality-seal.svg" alt="Sello de calidad">`);
+        if (!pageOpen) openPage();
+        html.push(`<aside class="quality-seal"><img class="seal" src="${assetBase}/quality-seal.svg" alt="Sello de calidad"><span>Revision editorial local</span></aside>`);
       } else if (line.startsWith('# ')) {
-        html.push(`<h1>${escapeHtml(line.slice(2))}</h1>`);
+        const heading = line.slice(2);
+        const lower = heading.toLowerCase();
+        if (lower === title.toLowerCase()) {
+          openPage('title-page');
+          html.push(`<p class="kicker">Edicion premium</p><h1>${inlineMarkdown(heading)}</h1>`);
+          introDone = true;
+        } else if (lower.includes('apendice') || lower.includes('creditos')) {
+          openPage('appendix-page');
+          html.push(`<h1>${inlineMarkdown(heading)}</h1>`);
+        } else if (introDone) {
+          openPage('chapter-page');
+          html.push(`<p class="chapter-label">Capitulo</p><h1>${inlineMarkdown(heading)}</h1>`);
+        } else {
+          openPage();
+          html.push(`<h1>${inlineMarkdown(heading)}</h1>`);
+        }
       } else if (line.startsWith('## ')) {
-        html.push(`<h2>${escapeHtml(line.slice(3))}</h2>`);
+        if (!pageOpen) openPage();
+        html.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`);
       } else if (line.startsWith('- ')) {
-        html.push(`<p class="bullet">• ${escapeHtml(line.slice(2))}</p>`);
+        if (!pageOpen) openPage();
+        html.push(`<p class="bullet"><span>•</span>${inlineMarkdown(line.slice(2))}</p>`);
       } else if (line === '---') {
-        html.push('<hr>');
+        closePage();
       } else {
-        html.push(`<p>${escapeHtml(line)}</p>`);
+        if (!pageOpen) openPage();
+        html.push(`<p>${inlineMarkdown(line)}</p>`);
       }
     }
     if (inTable) html.push('</table>');
+    closePage();
 
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-      @page{size:A4;margin:22mm 18mm}
-      body{font-family:Georgia,serif;max-width:820px;margin:0 auto;line-height:1.62;color:#171717;background:#fff}
-      h1{font-size:34px;line-height:1.12;margin:34px 0 12px;break-after:avoid;color:#101214}
-      h2{font-size:22px;margin:24px 0 8px;color:#3A3A34}
-      p{font-size:14.5px;margin:0 0 10px}
-      hr{border:0;border-top:1px solid #C9A227;margin:26px 0}
-      table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13px}
-      td{border:1px solid #C8C0AD;padding:9px;vertical-align:top}
-      tr:first-child td{background:#101214;color:#F4F0E8;font-weight:bold}
-      .cover{display:block;width:66%;max-width:420px;margin:24px auto 40px;break-after:page}
-      figure{margin:20px 0;text-align:center;break-inside:avoid}
-      figure img{max-width:100%;border:1px solid #D8D0BD}
-      figcaption{font:12px Arial,sans-serif;color:#666;margin-top:6px}
-      .seal{width:120px;float:right;margin:0 0 12px 18px}
-      .bullet{padding-left:14px}
+      @page{size:A4;margin:0}
+      :root{--ink:#191714;--muted:#675f51;--gold:#b79236;--teal:#2f6e6d;--paper:#f3ead8;--paper2:#fbf7ed;--line:#c8b98d}
+      *{box-sizing:border-box}
+      body{margin:0;background:#171717;color:var(--ink);font-family:Georgia,"Times New Roman",serif;line-height:1.55}
+      .book-cover,.book-page{position:relative;width:210mm;min-height:297mm;margin:0 auto 16px;background:var(--paper2);box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;break-after:page}
+      .book-page{padding:25mm 24mm 22mm;background:radial-gradient(circle at 20% 12%,rgba(255,255,255,.9),rgba(255,255,255,0) 32%),linear-gradient(90deg,rgba(0,0,0,.045),transparent 24mm),var(--paper)}
+      .book-page:before{content:"";position:absolute;inset:9mm;border:1px solid rgba(183,146,54,.45);pointer-events:none}
+      .book-page:after{content:"Cervantes";position:absolute;top:10mm;left:24mm;right:24mm;border-bottom:1px solid rgba(25,23,20,.22);padding-bottom:3mm;text-align:center;font:11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+      .book-cover{display:grid;place-items:center;background:#101214}
+      .book-cover .cover{display:block;width:100%;height:100%;object-fit:cover}
+      .title-page{display:grid;align-content:center;text-align:center;background:linear-gradient(180deg,#101214,#1b2524)}
+      .title-page:before{border-color:rgba(217,191,103,.58)}
+      .title-page:after{color:#d9bf67;border-color:rgba(217,191,103,.32)}
+      .title-page h1{color:#f7edd5;font-size:54px;max-width:140mm;margin:0 auto 12mm;text-wrap:balance}
+      .title-page p{color:#e6d3a6;max-width:120mm;margin-left:auto;margin-right:auto}
+      .kicker,.chapter-label{font:700 12px Arial,sans-serif;letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin:0 0 8mm}
+      h1{font-size:35px;line-height:1.1;margin:10mm 0 7mm;color:var(--ink);text-wrap:balance}
+      h2{font-size:22px;line-height:1.2;margin:9mm 0 4mm;color:#24211b}
+      h2:after{content:"";display:block;width:28mm;height:1px;background:var(--gold);margin-top:3mm}
+      p{font-size:14.2px;margin:0 0 4.2mm;max-width:142mm}
+      .chapter-page p:nth-of-type(2)::first-letter{float:left;font-size:54px;line-height:.85;padding:4px 8px 0 0;color:var(--gold)}
+      strong{font-weight:700;color:#111}
+      em{color:var(--muted)}
+      table{width:100%;border-collapse:collapse;margin:8mm 0;font-size:12.5px;break-inside:avoid}
+      td{border:1px solid var(--line);padding:3.5mm;vertical-align:top;background:rgba(255,255,255,.42)}
+      tr:first-child td{background:#171717;color:#f7edd5;font-weight:bold;font-family:Arial,sans-serif;text-transform:uppercase;letter-spacing:.5px}
+      figure{margin:9mm 0;text-align:center;break-inside:avoid}
+      figure img{max-width:100%;border:2px solid var(--gold);box-shadow:0 14px 34px rgba(29,25,17,.18)}
+      .feature-figure{margin-top:4mm}
+      figcaption{font:12px Arial,sans-serif;color:var(--muted);margin-top:3mm}
+      .quality-seal{float:right;width:38mm;margin:0 0 7mm 8mm;text-align:center;color:var(--muted);font:11px Arial,sans-serif;text-transform:uppercase;letter-spacing:.8px}
+      .seal{display:block;width:100%;margin-bottom:2mm}
+      .bullet{display:grid;grid-template-columns:6mm 1fr;gap:2mm;padding:2.5mm 0 2.5mm 4mm;border-left:2px solid var(--gold);background:rgba(255,255,255,.38)}
+      .bullet span{color:var(--gold)}
+      .appendix-page{background:linear-gradient(180deg,#f7f0e3,#efe2c9)}
+      @media screen{body{padding:18px 0}.book-cover,.book-page{max-width:min(92vw,210mm)}}
+      @media print{body{background:white}.book-cover,.book-page{margin:0;box-shadow:none}}
     </style></head><body>${html.join('\n')}</body></html>`;
   }
 
   async previewHtml(projectId: number) {
-    await ensureDir();
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) throw new Error('Project not found');
-    const markdown = await this.assembleMarkdown(projectId);
-    const titleMatch = markdown.match(/^# (.+)$/m);
-    const title = titleMatch?.[1] || project.name;
-    await this.premiumAssets(projectId, title);
-    return this.markdownToHtml(markdown, title, `/api/projects/${projectId}/assets`);
+    const rendered = await this.layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets` });
+    return rendered.html;
   }
 
   async assetPath(projectId: number, assetName: string) {
-    if (!['cover.svg', 'figure-map.svg', 'quality-seal.svg'].includes(assetName)) {
-      throw new Error('Unsupported asset');
-    }
-    const project = await prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) throw new Error('Project not found');
-    const markdown = await this.assembleMarkdown(projectId);
-    const titleMatch = markdown.match(/^# (.+)$/m);
-    const title = titleMatch?.[1] || project.name;
-    const assets = await this.premiumAssets(projectId, title);
-    const map: Record<string, string> = {
-      'cover.svg': assets.coverPath,
-      'figure-map.svg': assets.figurePath,
-      'quality-seal.svg': assets.sealPath,
-    };
-    return map[assetName];
+    return this.layoutService.assetPath(projectId, assetName);
   }
 
-  private async writeEpub(epubPath: string, title: string, markdown: string, assets: { coverPath: string; figurePath: string; sealPath: string }) {
-    const htmlBody = this.markdownToHtml(markdown, title)
+  private async writeEpub(epubPath: string, title: string, html: string, assets: Record<string, string>) {
+    const htmlBody = html
       .replace(/<!doctype html><html><head>[\s\S]*?<body>/, '')
       .replace('</body></html>', '');
 
@@ -286,12 +240,15 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
       archive.pipe(stream);
       archive.append('application/epub+zip', { name: 'mimetype', store: true });
       archive.append('<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>', { name: 'META-INF/container.xml' });
-      archive.append(`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">cervantes-${Date.now()}</dc:identifier><dc:title>${escapeHtml(title)}</dc:title><dc:language>es</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="content" href="content.xhtml" media-type="application/xhtml+xml"/><item id="cover" href="assets/cover.svg" media-type="image/svg+xml"/><item id="figure" href="assets/figure-map.svg" media-type="image/svg+xml"/><item id="seal" href="assets/quality-seal.svg" media-type="image/svg+xml"/></manifest><spine><itemref idref="content"/></spine></package>`, { name: 'OEBPS/package.opf' });
+      const manifestAssets = Object.keys(assets)
+        .map((role) => `<item id="${role}" href="assets/${role}.svg" media-type="image/svg+xml"/>`)
+        .join('');
+      archive.append(`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">cervantes-${Date.now()}</dc:identifier><dc:title>${escapeHtml(title)}</dc:title><dc:language>es</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>${manifestAssets}</manifest><spine><itemref idref="content"/></spine></package>`, { name: 'OEBPS/package.opf' });
       archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title></head><body><nav epub:type="toc"><h1>Indice</h1><ol><li><a href="content.xhtml">Libro completo</a></li></ol></nav></body></html>`, { name: 'OEBPS/nav.xhtml' });
       archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title><style>body{font-family:serif;line-height:1.55}img{max-width:100%}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px}</style></head><body>${htmlBody}</body></html>`, { name: 'OEBPS/content.xhtml' });
-      archive.file(assets.coverPath, { name: 'OEBPS/assets/cover.svg' });
-      archive.file(assets.figurePath, { name: 'OEBPS/assets/figure-map.svg' });
-      archive.file(assets.sealPath, { name: 'OEBPS/assets/quality-seal.svg' });
+      for (const [role, filePath] of Object.entries(assets)) {
+        archive.file(filePath, { name: `OEBPS/assets/${role}.svg` });
+      }
       archive.finalize().catch(reject);
     });
   }
@@ -305,7 +262,6 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
     const markdown = await this.assembleMarkdown(projectId);
     const titleMatch = markdown.match(/^# (.+)$/m);
     const title = titleMatch?.[1] || project.name;
-    const assets = await this.premiumAssets(projectId, title);
     let filePath = path.join(exportDir, `${base}.${format}`);
 
     if (format === 'md') {
@@ -336,19 +292,15 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
       });
       await fs.writeFile(filePath, await Packer.toBuffer(doc));
     } else if (format === 'pdf') {
-      const htmlPath = path.join(exportDir, `${base}.html`);
-      await fs.writeFile(htmlPath, this.markdownToHtml(markdown, title), 'utf8');
-      try {
-        const browser = await puppeteer.launch({ headless: true });
-        const page = await browser.newPage();
-        await page.goto(`file://${htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'networkidle0' });
-        await page.pdf({ path: filePath, format: 'A4', printBackground: true, displayHeaderFooter: false });
-        await browser.close();
-      } catch {
-        filePath = htmlPath;
-      }
+      const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
+      const browser = await puppeteer.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.goto(`file://${rendered.htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'networkidle0' });
+      await page.pdf({ path: filePath, format: 'A4', printBackground: true, displayHeaderFooter: false });
+      await browser.close();
     } else if (format === 'epub') {
-      await this.writeEpub(filePath, title, markdown, assets);
+      const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
+      await this.writeEpub(filePath, title, rendered.html, rendered.layout.assets);
     } else {
       throw new Error(`Unsupported format: ${format}`);
     }
@@ -375,8 +327,9 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
     const markdown = await this.assembleMarkdown(projectId);
     const titleMatch = markdown.match(/^# (.+)$/m);
     const title = titleMatch?.[1] || project.name;
-    const assets = await this.premiumAssets(projectId, title);
-    const html = this.markdownToHtml(markdown, title);
+    const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
+    const assets = rendered.layout.assets;
+    const html = rendered.html;
     const mdBuild = await this.exportFormat(projectId, 'md');
     const docxBuild = await this.exportFormat(projectId, 'docx');
     const pdfBuild = await this.exportFormat(projectId, 'pdf');
@@ -403,7 +356,7 @@ Assets generados localmente por Cervantes como SVG editables: cover.svg, figure-
       keywords: metadata.keywords,
       categories: metadata.categories,
       epubPath: epubBuild.filePath,
-      coverPath: assets.coverPath,
+      coverPath: assets.cover,
     });
     const gumroad = validateGumroadPackage({
       premiumPdfPath: pdfBuild.filePath,
@@ -479,16 +432,17 @@ ${JSON.stringify(gumroad, null, 2)}
       if (epubBuild.filePath) archive.file(epubBuild.filePath, { name: 'ebook_reflowable.epub' });
       archive.append(markdown, { name: 'manuscript_master_clean.md' });
       archive.append(html, { name: 'preview.html' });
-      archive.file(assets.coverPath, { name: 'cover_front.svg' });
-      archive.file(assets.coverPath, { name: 'assets/cover.svg' });
-      archive.file(assets.figurePath, { name: 'assets/figure-map.svg' });
-      archive.file(assets.sealPath, { name: 'assets/quality-seal.svg' });
+      if (assets.cover) archive.file(assets.cover, { name: 'cover_front.svg' });
+      for (const [role, filePath] of Object.entries(assets)) {
+        archive.file(filePath, { name: `assets/${role}.svg` });
+      }
       archive.append(gumroadPage, { name: 'gumroad_product_page.md' });
       archive.append(kdpChecklist, { name: 'kdp_publication_checklist.md' });
       archive.append(JSON.stringify(metadata, null, 2), { name: 'metadata.json' });
       archive.append(aiDeclaration, { name: 'ai_declaration.md' });
       archive.append(qualityReport, { name: 'quality_report.md' });
-      archive.append(JSON.stringify({ projectId, name: project.name, title, assets: ['cover_front.svg', 'assets/figure-map.svg', 'assets/quality-seal.svg'], kdp, gumroad }, null, 2), { name: 'manifest.json' });
+      archive.append(JSON.stringify(rendered.report, null, 2), { name: 'visual_quality_report.json' });
+      archive.append(JSON.stringify({ projectId, name: project.name, title, assets: Object.keys(assets), kdp, gumroad, visual: rendered.report }, null, 2), { name: 'manifest.json' });
       archive.finalize().catch(reject);
     });
 

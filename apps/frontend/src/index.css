@@ -480,7 +480,8 @@ textarea {
   height: calc(100vh - 130px);
   min-height: 620px;
   border: 1px solid #2a2d30;
-  background: #f4f0e8;
+  background: #111315;
+  overflow: auto;
 }
 
 .previewShell iframe {
@@ -488,6 +489,8 @@ textarea {
   height: 100%;
   border: 0;
   background: white;
+  transform: scale(calc(var(--preview-zoom, 100%) / 100));
+  transform-origin: top center;
 }
 
 .previewShell.reflow {
@@ -499,7 +502,41 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.previewToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.previewStatus {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 160px)) minmax(220px, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.previewStatus div,
+.previewStatus label {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #2a2d30;
+  background: #171a1d;
+  padding: 10px 12px;
+}
+
+.previewStatus span,
+.previewStatus label {
+  color: #aeb5b8;
+  font-size: 12px;
+}
+
+.previewStatus strong {
+  color: #f4d77c;
+  font-size: 18px;
 }
 
 .tabs button {
@@ -843,6 +880,42 @@ textarea {
   align-content: start;
 }
 
+.visualQualityPanel {
+  margin-top: 14px;
+}
+
+.visualQualityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.visualQualityGrid div {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #2a2d30;
+  background: #101214;
+  padding: 12px;
+}
+
+.visualQualityGrid span {
+  color: #aeb5b8;
+  font-size: 12px;
+}
+
+.visualQualityGrid strong {
+  color: #f5f2ea;
+  font-size: 16px;
+}
+
+.visualQualityGrid .ok {
+  border-color: #2f6e6d;
+}
+
+.visualQualityGrid .missing {
+  border-color: #8f3524;
+}
+
 .technicalGateGrid {
   margin: 12px 0;
 }
@@ -1021,6 +1094,15 @@ textarea {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .previewToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .previewStatus {
+    grid-template-columns: 1fr;
   }
 
   h1 {
