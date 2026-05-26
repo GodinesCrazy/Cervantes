@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+Gemini API.txt
+*.db
+*.db-journal
+storage/projects/
+storage/exports/
+storage/covers/
+storage/assets/
+storage/backups/
+.vite/
+.turbo/
+*.log
+*.tsbuildinfo

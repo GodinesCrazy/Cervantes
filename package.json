@@ -1,0 +1,28 @@
+{
+  "name": "cervantes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fábrica personal de eBooks premium - Aplicación mono-usuario",
+  "workspaces": [
+    "apps/backend",
+    "apps/frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev -w apps/backend",
+    "dev:frontend": "npm run dev -w apps/frontend",
+    "build": "npm run build -w apps/backend && npm run build -w apps/frontend",
+    "test": "npm run test -w apps/backend",
+    "db:migrate": "npx prisma migrate dev --schema=prisma/schema.prisma",
+    "db:push": "npx prisma db push --schema=prisma/schema.prisma",
+    "db:generate": "npx prisma generate --schema=prisma/schema.prisma",
+    "db:studio": "npx prisma studio --schema=prisma/schema.prisma"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prisma": "~6.8.0"
+  },
+  "dependencies": {
+    "@prisma/client": "~6.8.0"
+  }
+}

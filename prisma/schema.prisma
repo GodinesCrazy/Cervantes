@@ -1,0 +1,495 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AppSettings {
+  id             Int      @id @default(1)
+  aiProvider     String   @default("auto")
+  aiModel        String?
+  openaiApiKey   String?
+  geminiApiKey   String?
+  groqApiKey     String?
+  defaultLanguage String  @default("es")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Project {
+  id          Int      @id @default(autoincrement())
+  name        String
+  slug        String   @unique
+  status      String   @default("IDEA_DRAFT")
+  currentPhase String  @default("idea")
+  goNoGoScore Int?
+  goNoGoResult String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  idea                EbookIdea?
+  clarifications      ClarificationQuestion[]
+  marketResearch      MarketResearch?
+  competitors         CompetitorBook[]
+  languageOpportunity LanguageOpportunity?
+  editorialFormula    EditorialFormula?
+  editorialBible      EditorialBible?
+  visualBible         VisualBible?
+  chapterPlans        ChapterPlan[]
+  manuscriptBlocks    ManuscriptBlock[]
+  auditReports        AuditReport[]
+  recoveryReports     RecoveryReport[]
+  visualAssets        VisualAsset[]
+  formatBuilds        FormatBuild[]
+  metadataPackage     MetadataPackage?
+  publishingChecklist PublishingChecklist?
+  exportPackages      ExportPackage[]
+  versionSnapshots    VersionSnapshot[]
+  phaseGates          PhaseGate[]
+  aiUsageLogs         AIUsageLog[]
+  sourceNotes         SourceNote[]
+  publicationReadiness PublicationReadiness?
+  backupRecords       BackupRecord[]
+}
+
+model EbookIdea {
+  id              Int      @id @default(autoincrement())
+  projectId       Int      @unique
+  rawIdea         String
+  topic           String?
+  audience        String?
+  readerLevel     String?
+  commercialGoal  String?
+  tone            String?
+  targetPlatforms String?
+  baseLanguage    String   @default("es")
+  allowAI         Boolean  @default(true)
+  wantPDF         Boolean  @default(true)
+  wantEPUB        Boolean  @default(true)
+  wantDOCX        Boolean  @default(true)
+  wantWorkbook    Boolean  @default(false)
+  wantQuickGuide  Boolean  @default(false)
+  wantAssistedPub Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ClarificationQuestion {
+  id         Int      @id @default(autoincrement())
+  projectId  Int
+  question   String
+  answer     String?
+  category   String?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model MarketResearch {
+  id               Int      @id @default(autoincrement())
+  projectId        Int      @unique
+  niche            String?
+  subNiche         String?
+  audience         String?
+  painDesire       String?
+  competitorCount  Int?
+  priceRangeLow    Float?
+  priceRangeHigh   Float?
+  avgReviews       Int?
+  formats          String?
+  estimatedLength  String?
+  commercialPromise String?
+  observedCovers   String?
+  keywords         String?
+  language         String?
+  opportunityScore Int?
+  riskLevel        String?
+  saturationLevel  String?
+  recommendedTitle String?
+  suggestedTitles  String?
+  titleRationale   String?
+  sourceNotes      String?
+  userVerified     Boolean  @default(false)
+  summary          String?
+  fullReport       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model CompetitorBook {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  title       String
+  author      String?
+  platform    String?
+  price       Float?
+  reviews     Int?
+  rating      Float?
+  format      String?
+  length      String?
+  strengths   String?
+  weaknesses  String?
+  coverStyle  String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model LanguageOpportunity {
+  id                    Int      @id @default(autoincrement())
+  projectId             Int      @unique
+  recommendedPrimary    String?
+  recommendedSecondary  String?
+  analysis              String?
+  strategyNote          String?
+  languageScores        String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model EditorialFormula {
+  id                Int      @id @default(autoincrement())
+  projectId         Int      @unique
+  productType       String?
+  includesWorkbook  Boolean  @default(false)
+  includesQuickGuide Boolean @default(false)
+  includesTemplates Boolean  @default(false)
+  isBundle          Boolean  @default(false)
+  recommendedPrice  Float?
+  priceStrategy     String?
+  positioning       String?
+  valueProposition  String?
+  recommendation    String?
+  reasoning         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model EditorialBible {
+  id              Int      @id @default(autoincrement())
+  projectId       Int      @unique
+  title           String?
+  subtitle        String?
+  centralPromise  String?
+  audience        String?
+  tone            String?
+  style           String?
+  structure       String?
+  tableOfContents String?
+  estimatedLength String?
+  contentRules    String?
+  claimsRules     String?
+  ethicsRules     String?
+  chapterTemplate String?
+  exerciseTemplate String?
+  qualityCriteria String?
+  approvalChecklist String?
+  fullDocument    String?
+  status          String   @default("DRAFT")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model VisualBible {
+  id               Int      @id @default(autoincrement())
+  projectId        Int      @unique
+  visualConcept    String?
+  artDirection     String?
+  colorPalette     String?
+  typography       String?
+  coverStyle       String?
+  backCoverStyle   String?
+  separatorStyle   String?
+  plateStyle       String?
+  tableStyle       String?
+  calloutStyle     String?
+  iconographyStyle String?
+  imagePrompts     String?
+  requiredAssets   String?
+  visualChecklist  String?
+  exportCriteria   String?
+  fullDocument     String?
+  status           String   @default("DRAFT")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ChapterPlan {
+  id              Int      @id @default(autoincrement())
+  projectId       Int
+  partNumber      Int?
+  chapterNumber   Int
+  title           String
+  summary         String?
+  estimatedWords  Int?
+  dependencies    String?
+  approvalCriteria String?
+  status          String   @default("PENDING")
+  order           Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project          Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  manuscriptBlocks ManuscriptBlock[]
+}
+
+model ManuscriptBlock {
+  id            Int      @id @default(autoincrement())
+  projectId     Int
+  chapterPlanId Int?
+  blockTitle    String
+  content       String?
+  wordCount     Int?
+  status        String   @default("PENDING")
+  version       Int      @default(1)
+  aiGenerated   Boolean  @default(false)
+  aiModel       String?
+  sourcePrompt  String?
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  chapterPlan  ChapterPlan?  @relation(fields: [chapterPlanId], references: [id])
+  blockVersions BlockVersion[]
+  auditReports  AuditReport[]
+}
+
+model BlockVersion {
+  id          Int      @id @default(autoincrement())
+  blockId     Int
+  version     Int
+  content     String
+  wordCount   Int?
+  changeNote  String?
+  createdAt   DateTime @default(now())
+
+  block ManuscriptBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+}
+
+model AuditReport {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  blockId          Int?
+  auditType        String   @default("block")
+  coherenceScore   Int?
+  toneScore        Int?
+  structureScore   Int?
+  completenessScore Int?
+  overallScore     Int?
+  issues           String?
+  recommendations  String?
+  riskyClaimsFound String?
+  metaTextFound    String?
+  placeholdersFound String?
+  approvalStatus   String   @default("PENDING")
+  fullReport       String?
+  createdAt        DateTime @default(now())
+
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  block   ManuscriptBlock? @relation(fields: [blockId], references: [id])
+}
+
+model RecoveryReport {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  missingBlocks    String?
+  recoveredBlocks  String?
+  assemblyStatus   String   @default("PENDING")
+  masterManuscript String?
+  cleanupLog       String?
+  fullReport       String?
+  createdAt        DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model VisualAsset {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  assetType   String
+  name        String
+  description String?
+  prompt      String?
+  filePath    String?
+  status      String   @default("PENDING")
+  approvalStatus String @default("PENDING")
+  replacementPath String?
+  aiGenerated Boolean  @default(false)
+  rights      String?
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model FormatBuild {
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  format           String
+  filePath         String?
+  fileSize         Int?
+  status           String   @default("PENDING")
+  validationReport String?
+  createdAt        DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model MetadataPackage {
+  id                Int      @id @default(autoincrement())
+  projectId         Int      @unique
+  commercialTitle   String?
+  subtitle          String?
+  longDescription   String?
+  shortDescription  String?
+  salesBullets      String?
+  keywords          String?
+  suggestedCategories String?
+  recommendedPrice  Float?
+  launchStrategy    String?
+  kdpMetadata       String?
+  gumroadMetadata   String?
+  shopifyMetadata   String?
+  d2dMetadata       String?
+  promoCopy         String?
+  presaleText       String?
+  requiredAssets    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model PublishingChecklist {
+  id                Int      @id @default(autoincrement())
+  projectId         Int      @unique
+  items             String?
+  editorialGate     String   @default("PENDING")
+  technicalGate     String   @default("PENDING")
+  visualGate        String   @default("PENDING")
+  complianceGate    String   @default("PENDING")
+  platformGate      String   @default("PENDING")
+  aiDeclaration     String?
+  copyrightStatus   String?
+  overallStatus     String   @default("PENDING")
+  kdpChecklist      String?
+  gumroadChecklist  String?
+  readinessReport   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model ExportPackage {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  packageType String
+  filePath    String?
+  fileSize    Int?
+  contents    String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model VersionSnapshot {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  snapshotType String
+  data        String
+  note        String?
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model PhaseGate {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  phase       String
+  status      String   @default("PENDING")
+  notes       String?
+  overrideReason String?
+  approvedBy  String?
+  approvedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, phase])
+}
+
+model AIUsageLog {
+  id          Int      @id @default(autoincrement())
+  projectId   Int?
+  engine      String
+  provider    String
+  model       String?
+  prompt      String?
+  result      String?
+  status      String   @default("DONE")
+  error       String?
+  createdAt   DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model SourceNote {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  sourceType  String
+  title       String
+  url         String?
+  notes       String?
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model PublicationReadiness {
+  id          Int      @id @default(autoincrement())
+  projectId   Int      @unique
+  status      String   @default("PENDING")
+  kdpStatus   String   @default("PENDING")
+  gumroadStatus String @default("PENDING")
+  gateReport  String?
+  qualityReport String?
+  finalPackagePath String?
+  lastCheckedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model BackupRecord {
+  id          Int      @id @default(autoincrement())
+  projectId   Int?
+  backupType  String
+  filePath    String
+  fileSize    Int?
+  status      String   @default("DONE")
+  createdAt   DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
