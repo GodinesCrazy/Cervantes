@@ -12,15 +12,16 @@ El orden por defecto es:
 2. `gemini`
 3. `openrouter`
 4. `cerebras`
-5. `mistral`
-6. `together`
-7. `fireworks`
-8. `openai`
+5. `deepseek`
+6. `mistral`
+7. `together`
+8. `fireworks`
+9. `openai`
 
 Se puede sobrescribir con:
 
 ```env
-AI_PROVIDER_ORDER=groq,openrouter,cerebras,mistral,gemini,openai
+AI_PROVIDER_ORDER=cerebras,deepseek,groq,openrouter,mistral,gemini,openai
 ```
 
 ## Variables de entorno
@@ -30,6 +31,7 @@ GROQ_API_KEY=
 GEMINI_API_KEY=
 OPENROUTER_API_KEY=
 CEREBRAS_API_KEY=
+DEEPSEEK_API_KEY=
 MISTRAL_API_KEY=
 TOGETHER_API_KEY=
 FIREWORKS_API_KEY=
@@ -43,6 +45,7 @@ GROQ_MODEL=llama-3.3-70b-versatile
 GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_MODEL=openrouter/free
 CEREBRAS_MODEL=gpt-oss-120b
+DEEPSEEK_MODEL=deepseek-chat
 MISTRAL_MODEL=mistral-small-latest
 TOGETHER_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
 FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
@@ -62,6 +65,7 @@ FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
 - Gemini: util como proveedor general con free tier, pero debe tener API key valida.
 - OpenRouter: util como router de modelos gratuitos y pagados bajo una API.
 - Cerebras: util por inferencia rapida y compatibilidad tipo OpenAI.
+- DeepSeek: util como proveedor OpenAI-compatible para escritura/revision, segun cuota disponible.
 - Mistral: util por API directa y modelos pequenos/medianos para borradores y reescritura.
 - Together/Fireworks: utiles como proveedores opcionales si hay creditos o tiers disponibles en la cuenta.
 

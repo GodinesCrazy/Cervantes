@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-const keys = ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'GROQ_API_KEY', 'CEREBRAS_API_KEY', 'OPENROUTER_API_KEY'];
+const keys = ['OPENAI_API_KEY', 'GEMINI_API_KEY', 'GROQ_API_KEY', 'CEREBRAS_API_KEY', 'DEEPSEEK_API_KEY', 'OPENROUTER_API_KEY'];
 const envPath = new URL('../.env', import.meta.url);
 const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 const values = Object.fromEntries(

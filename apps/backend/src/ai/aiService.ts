@@ -1,5 +1,5 @@
 export type AIResult<T> = {
-  provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'together' | 'fireworks';
+  provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'deepseek' | 'together' | 'fireworks';
   model?: string;
   data: T;
   prompt?: string;
@@ -40,6 +40,10 @@ export class AIService {
     cerebras: {
       apiKey: process.env.CEREBRAS_API_KEY,
       model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
+    },
+    deepseek: {
+      apiKey: process.env.DEEPSEEK_API_KEY,
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
     },
     together: {
       apiKey: process.env.TOGETHER_API_KEY,
@@ -127,7 +131,7 @@ export class AIService {
       .map(provider => provider.trim().toLowerCase())
       .filter((provider): provider is AIProvider => this.isProvider(provider));
     if (configured.length > 0) return configured;
-    return ['groq', 'gemini', 'openrouter', 'cerebras', 'mistral', 'together', 'fireworks', 'openai'];
+    return ['cerebras', 'deepseek', 'groq', 'gemini', 'openrouter', 'mistral', 'together', 'fireworks', 'openai'];
   }
 
   private isProvider(provider: string): provider is AIProvider {
@@ -137,6 +141,7 @@ export class AIService {
       || provider === 'openrouter'
       || provider === 'mistral'
       || provider === 'cerebras'
+      || provider === 'deepseek'
       || provider === 'together'
       || provider === 'fireworks';
   }
@@ -146,6 +151,7 @@ export class AIService {
     if (provider === 'openrouter') return 'https://openrouter.ai/api/v1/chat/completions';
     if (provider === 'mistral') return 'https://api.mistral.ai/v1/chat/completions';
     if (provider === 'cerebras') return 'https://api.cerebras.ai/v1/chat/completions';
+    if (provider === 'deepseek') return 'https://api.deepseek.com/chat/completions';
     if (provider === 'together') return 'https://api.together.xyz/v1/chat/completions';
     if (provider === 'fireworks') return 'https://api.fireworks.ai/inference/v1/chat/completions';
     return 'https://api.groq.com/openai/v1/chat/completions';
@@ -160,7 +166,7 @@ export class AIService {
   }
 
   private supportsJsonResponseFormat(provider: AIProvider) {
-    return provider === 'openai' || provider === 'groq' || provider === 'mistral' || provider === 'cerebras';
+    return provider === 'openai' || provider === 'groq' || provider === 'mistral' || provider === 'cerebras' || provider === 'deepseek';
   }
 
   private async callOpenAICompatible<T>(

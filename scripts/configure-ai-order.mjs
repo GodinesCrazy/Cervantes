@@ -3,8 +3,9 @@ import fs from 'node:fs';
 const envPath = new URL('../.env', import.meta.url);
 const updates = {
   AI_PROVIDER: 'auto',
-  AI_PROVIDER_ORDER: 'cerebras,groq,gemini,openrouter,openai',
+  AI_PROVIDER_ORDER: 'cerebras,deepseek,groq,gemini,openrouter,openai',
   CEREBRAS_MODEL: 'gpt-oss-120b',
+  DEEPSEEK_MODEL: 'deepseek-chat',
   AI_SECTION_DELAY_MS: '4500',
   AI_MAX_ATTEMPTS: '3',
 };
