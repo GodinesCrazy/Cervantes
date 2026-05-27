@@ -407,6 +407,32 @@ async function fileExists(filePath?: string | null) {
   }
 }
 
+async function latestExistingPdf(projectId: number) {
+  const latestBuild = await prisma.formatBuild.findFirst({
+    where: { projectId, format: 'pdf', status: 'DONE' },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (latestBuild?.filePath && await fileExists(latestBuild.filePath)) return latestBuild.filePath;
+
+  try {
+    const files = await fs.readdir(exportDir);
+    const candidates = await Promise.all(
+      files
+        .filter((file) => file.startsWith(`${projectId}-`) && file.toLowerCase().endsWith('.pdf'))
+        .map(async (file) => {
+          const filePath = path.join(exportDir, file);
+          const stat = await fs.stat(filePath);
+          return stat.isFile() && stat.size > 256 ? { filePath, mtime: stat.mtimeMs } : null;
+        }),
+    );
+    return candidates
+      .filter((candidate): candidate is { filePath: string; mtime: number } => Boolean(candidate))
+      .sort((a, b) => b.mtime - a.mtime)[0]?.filePath || null;
+  } catch {
+    return null;
+  }
+}
+
 function buildExternalImagePrompt(project: Awaited<ReturnType<typeof projectOr404>>, asset: NonNullable<Awaited<ReturnType<typeof projectOr404>>['visualAssets']>[number]) {
   const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
   const style = asset.themeKey || project.visualBible?.visualConcept || 'premium editorial';
@@ -737,6 +763,11 @@ router.get('/:id/preview', async (req, res, next) => {
 router.get('/:id/preview.pdf', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
+    const existingPdf = await latestExistingPdf(projectId);
+    if (existingPdf) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.download(existingPdf, 'ebook_preview.pdf');
+    }
     const build = await exporter.exportFormat(projectId, 'pdf');
     if (!build.filePath) throw new Error('PDF preview was not generated');
     res.download(build.filePath, 'ebook_preview.pdf');
