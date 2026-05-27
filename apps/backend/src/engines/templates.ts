@@ -278,6 +278,7 @@ function ensureChapterDepth(content: string, title: string, summary: string, top
 export async function generateFullChapterTemplate(title: string, summary: string, topic: string, wordCount: number, onProgress?: (progress: number) => void) {
   const minWords = Math.max(850, Math.min(1600, Math.round((wordCount || 1000) * 0.6)));
   const warnings: string[] = [];
+  const sectionDelayMs = Number(process.env.AI_SECTION_DELAY_MS || 3500);
   // Dividir el capítulo en secciones para evitar bloqueos y administrar proveedores externos por tramo.
   const sections = [
     { name: 'Introducción', goal: `Write a compelling and comprehensive introduction (MINIMUM ${Math.round(wordCount * 0.2)} words) for this chapter. Hook the reader, provide deep context, and explain what they will learn.` },
@@ -336,7 +337,7 @@ Do NOT output meta-commentary.`,
     }
     
     if (i < sections.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, result.provider === 'template' ? 250 : 1200));
+      await new Promise(resolve => setTimeout(resolve, result.provider === 'template' ? 250 : sectionDelayMs));
     }
   }
 

@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 const blocks = await prisma.manuscriptBlock.findMany({
   where: { projectId },
-  select: { blockTitle: true, wordCount: true, status: true, aiModel: true },
+  select: { id: true, blockTitle: true, wordCount: true, status: true, aiModel: true },
   orderBy: { order: 'asc' },
 });
 

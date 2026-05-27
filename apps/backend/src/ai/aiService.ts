@@ -15,7 +15,7 @@ export class AIService {
   private static providerCooldowns = new Map<AIProvider, number>();
   private provider = (process.env.AI_PROVIDER || 'auto').toLowerCase();
   private requestTimeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 10000);
-  private maxAttempts = Number(process.env.AI_MAX_ATTEMPTS || 2);
+  private maxAttempts = Number(process.env.AI_MAX_ATTEMPTS || 3);
   private providers: Record<AIProvider, { apiKey?: string; model: string }> = {
     openai: {
       apiKey: process.env.OPENAI_API_KEY,
@@ -39,7 +39,7 @@ export class AIService {
     },
     cerebras: {
       apiKey: process.env.CEREBRAS_API_KEY,
-      model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b',
+      model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
     },
     together: {
       apiKey: process.env.TOGETHER_API_KEY,
@@ -202,11 +202,11 @@ export class AIService {
         });
 
         if (!response.ok) {
-          if (response.status === 429 && attempt < this.maxAttempts) {
-            await new Promise(r => setTimeout(r, attempt * 2000));
+          const body = await response.text().catch(() => '');
+          if (response.status === 429 && attempt < this.maxAttempts && !/tokens per day|TPD|daily|insufficient_quota/i.test(body)) {
+            await new Promise(r => setTimeout(r, attempt * 8000));
             continue;
           }
-          const body = await response.text().catch(() => '');
           throw new Error(`${provider} request failed: ${response.status} ${body}`);
         }
 

@@ -42,7 +42,7 @@ Modelos configurables:
 GROQ_MODEL=llama-3.3-70b-versatile
 GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_MODEL=openrouter/free
-CEREBRAS_MODEL=llama-3.3-70b
+CEREBRAS_MODEL=gpt-oss-120b
 MISTRAL_MODEL=mistral-small-latest
 TOGETHER_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
 FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
