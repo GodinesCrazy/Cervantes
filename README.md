@@ -10,7 +10,7 @@ Cervantes es una aplicación **mono-usuario privada** diseñada para la producci
 
 - **Pipeline editorial completo**: Idea → Investigación → Fórmula → Biblia → Manuscrito → Exportación
 - **13 motores especializados**: Cada fase tiene su propio engine de generación
-- **IA con fallback inteligente**: OpenAI → Gemini → Groq → Plantillas
+- **IA con orquestación editorial**: motor multi-IA por tarea, fallback visible y plantillas solo como emergencia
 - **Exportación premium**: Markdown, DOCX, PDF premium, EPUB, ZIP
 - **Investigación de mercado**: Análisis de nicho, competencia, score GO/NO-GO
 - **Análisis de idiomas**: Recomendación del idioma más rentable
@@ -50,16 +50,19 @@ npm run dev
 
 ## ⚙️ Configuración de IA
 
-Cervantes soporta múltiples proveedores de IA en cadena de fallback:
+Cervantes soporta múltiples proveedores de IA. En modo `AI_PROVIDER=auto`, el sistema elige motor según la tarea editorial:
 
-| Prioridad | Provider | Variable | Notas |
-|-----------|----------|----------|-------|
-| 1 | OpenAI | `OPENAI_API_KEY` | GPT-4o, mejor calidad |
-| 2 | Google Gemini | `GEMINI_API_KEY` | Gratuito con límites |
-| 3 | Groq | `GROQ_API_KEY` | Gratuito, rápido |
-| 4 | Plantillas | — | Sin API, modo manual |
+| Provider | Variable | Uso principal |
+|----------|----------|---------------|
+| OpenAI | `OPENAI_API_KEY` | Reescritura premium, metadata y prompts visuales |
+| Google Gemini | `GEMINI_API_KEY` | Investigación, naming y auditoría |
+| Groq | `GROQ_API_KEY` | Generación rápida y fallback veloz |
+| Cerebras | `CEREBRAS_API_KEY` | Capítulos largos y expansión rápida |
+| DeepSeek | `DEEPSEEK_API_KEY` | Escritura extensa y ritmo editorial |
+| OpenRouter | `OPENROUTER_API_KEY` | Router alternativo de modelos |
+| Cohere | `COHERE_API_KEY` | Clasificación, resumen y QA semántico |
 
-Si no se configura ninguna API key, la aplicación funciona completamente en **modo plantilla**, generando estructuras y guías que el usuario puede completar manualmente.
+También detecta claves visuales como `STABILITY_API_KEY`, `REPLICATE_API_KEY`, `FAL_API_KEY`, `HUGGINGFACE_API_KEY`, `POLLINATIONS_API_KEY` y `CLOUDFLARE_API_KEY` para integraciones gráficas. Si no se configura ninguna API key, la aplicación funciona en **modo plantilla**, pero los resultados quedan marcados como borrador no publicable hasta usar IA externa o revisión humana.
 
 ## 📁 Estructura del proyecto
 

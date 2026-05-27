@@ -6,22 +6,23 @@ Cervantes no debe considerar publicable un manuscrito final generado solo con pl
 
 ## Proveedores soportados
 
-El orden por defecto es:
+El orden por defecto se adapta por tarea. La cadena general es:
 
-1. `groq`
-2. `gemini`
-3. `openrouter`
-4. `cerebras`
-5. `deepseek`
-6. `mistral`
-7. `together`
-8. `fireworks`
-9. `openai`
+1. `cerebras`
+2. `deepseek`
+3. `groq`
+4. `gemini`
+5. `cohere`
+6. `openrouter`
+7. `mistral`
+8. `together`
+9. `fireworks`
+10. `openai`
 
 Se puede sobrescribir con:
 
 ```env
-AI_PROVIDER_ORDER=cerebras,deepseek,groq,openrouter,mistral,gemini,openai
+AI_PROVIDER_ORDER=cerebras,deepseek,groq,gemini,cohere,openrouter,mistral,openai
 ```
 
 ## Variables de entorno
@@ -32,10 +33,17 @@ GEMINI_API_KEY=
 OPENROUTER_API_KEY=
 CEREBRAS_API_KEY=
 DEEPSEEK_API_KEY=
+COHERE_API_KEY=
 MISTRAL_API_KEY=
 TOGETHER_API_KEY=
 FIREWORKS_API_KEY=
 OPENAI_API_KEY=
+STABILITY_API_KEY=
+REPLICATE_API_KEY=
+FAL_API_KEY=
+HUGGINGFACE_API_KEY=
+POLLINATIONS_API_KEY=
+CLOUDFLARE_API_KEY=
 ```
 
 Modelos configurables:
@@ -46,6 +54,7 @@ GEMINI_MODEL=gemini-2.5-flash
 OPENROUTER_MODEL=openrouter/free
 CEREBRAS_MODEL=gpt-oss-120b
 DEEPSEEK_MODEL=deepseek-chat
+COHERE_MODEL=command-a-03-2025
 MISTRAL_MODEL=mistral-small-latest
 TOGETHER_MODEL=meta-llama/Llama-3.3-70B-Instruct-Turbo-Free
 FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
@@ -68,6 +77,8 @@ FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
 - Cerebras: util por inferencia rapida y compatibilidad tipo OpenAI.
 - DeepSeek: util como proveedor OpenAI-compatible para escritura/revision, segun cuota disponible.
 - Mistral: util por API directa y modelos pequenos/medianos para borradores y reescritura.
+- Cohere: util para clasificacion, resumen, reescritura breve y QA semantico.
 - Together/Fireworks: utiles como proveedores opcionales si hay creditos o tiers disponibles en la cuenta.
+- Stability/Replicate/fal.ai/Hugging Face/Pollinations/Cloudflare: detectados como motores visuales o gateways para futuras variantes de assets premium.
 
 Esta capa esta pensada para administrar disponibilidad, no para prometer que todos los proveedores sean gratis ilimitados. Las cuotas cambian por cuenta, region y modelo.

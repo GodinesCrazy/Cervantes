@@ -124,5 +124,19 @@ export const api = {
     }),
   backupProject: (id: number) => request<Project>(`/api/projects/${id}/backup`, { method: 'POST', headers: jsonHeaders }),
   settingsStatus: () => request<Record<string, unknown>>('/api/settings/status'),
+  aiProviders: () => request<Record<string, unknown>>('/api/settings/ai/providers'),
+  aiSmokeTest: (providers?: string[]) =>
+    request<Record<string, unknown>>('/api/settings/ai/smoke-test', {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ providers }),
+    }),
+  aiUsage: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/ai/usage`),
+  runAiTask: (id: number, data: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/api/projects/${id}/ai/run-task`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(data),
+    }),
   backupWorkspace: () => request<Record<string, unknown>>('/api/settings/backup', { method: 'POST', headers: jsonHeaders }),
 };

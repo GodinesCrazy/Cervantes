@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const { AIService } = require('../apps/backend/dist/ai/aiService.js');
 
 const providers = process.argv.slice(2);
-const defaultProviders = ['cerebras', 'deepseek', 'groq', 'gemini', 'openrouter', 'openai'];
+const defaultProviders = ['cerebras', 'deepseek', 'groq', 'gemini', 'cohere', 'openrouter', 'openai'];
 const ai = new AIService();
 const results = [];
 

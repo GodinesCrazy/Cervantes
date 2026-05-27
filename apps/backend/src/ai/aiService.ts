@@ -1,12 +1,12 @@
 export type AIResult<T> = {
-  provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'deepseek' | 'together' | 'fireworks';
+  provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'deepseek' | 'together' | 'fireworks' | 'cohere';
   model?: string;
   data: T;
   prompt?: string;
   error?: string;
 };
 
-type AIProvider = Exclude<AIResult<unknown>['provider'], 'template'>;
+export type AIProvider = Exclude<AIResult<unknown>['provider'], 'template'>;
 
 const systemPrompt =
   'You are Cervantes, a production editorial engine. Return strict JSON only. Preserve all required fields and avoid unsupported claims.';
@@ -53,6 +53,10 @@ export class AIService {
       apiKey: process.env.FIREWORKS_API_KEY,
       model: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
     },
+    cohere: {
+      apiKey: process.env.COHERE_API_KEY,
+      model: process.env.COHERE_MODEL || 'command-a-03-2025',
+    },
   };
 
   async generate<T>(templateData: T, options: { engine?: string; prompt?: string; provider?: AIProvider } = {}): Promise<AIResult<T>> {
@@ -72,7 +76,7 @@ export class AIService {
     }
 
     const errors: string[] = [];
-    const chain = options.provider ? [options.provider] : this.providerChain();
+    const chain = options.provider ? [options.provider] : this.providerChain(options.engine);
     
     for (const provider of chain) {
       const cooldownUntil = AIService.providerCooldowns.get(provider) || 0;
@@ -80,7 +84,7 @@ export class AIService {
         errors.push(`${provider}: temporarily skipped after recent provider failure`);
         continue;
       }
-      const config = this.providers[provider];
+      const config = this.providerConfig(provider);
       if (!config.apiKey) {
         errors.push(`${provider}: API key missing`);
         continue;
@@ -89,7 +93,9 @@ export class AIService {
       try {
         const data = provider === 'gemini'
           ? await this.callGemini<T>(options.prompt, templateData, config.apiKey, config.model)
-          : await this.callOpenAICompatible<T>(
+          : provider === 'cohere'
+            ? await this.callCohere<T>(options.prompt, templateData, config.apiKey, config.model)
+            : await this.callOpenAICompatible<T>(
               provider,
               this.openAICompatibleEndpoint(provider),
               options.prompt,
@@ -119,19 +125,79 @@ export class AIService {
     };
   }
 
-  private providerChain(): AIProvider[] {
+  private providerChain(engine?: string): AIProvider[] {
     if (this.provider === 'template') {
       return [];
     }
     if (this.isProvider(this.provider)) {
       return [this.provider];
     }
+    const taskRoute = this.taskProviderChain(engine);
     const configured = (process.env.AI_PROVIDER_ORDER || '')
       .split(',')
       .map(provider => provider.trim().toLowerCase())
       .filter((provider): provider is AIProvider => this.isProvider(provider));
+    if (taskRoute.length > 0) {
+      return Array.from(new Set([...taskRoute, ...configured]));
+    }
     if (configured.length > 0) return configured;
-    return ['cerebras', 'deepseek', 'groq', 'gemini', 'openrouter', 'mistral', 'together', 'fireworks', 'openai'];
+    return ['cerebras', 'deepseek', 'groq', 'gemini', 'cohere', 'openrouter', 'mistral', 'together', 'fireworks', 'openai'];
+  }
+
+  private taskProviderChain(engine?: string): AIProvider[] {
+    if (!engine) return [];
+    if (/market|research|language|naming|go-nogo/i.test(engine)) return ['gemini', 'openai', 'openrouter', 'deepseek'];
+    if (/chapter|blocks|writer/i.test(engine)) return ['deepseek', 'cerebras', 'groq', 'openai'];
+    if (/rewrite|rhythm|recovery/i.test(engine)) return ['deepseek', 'openai', 'groq'];
+    if (/audit|quality|claim|compliance/i.test(engine)) return ['gemini', 'openai', 'cohere', 'mistral'];
+    if (/visual|art|prompt|cover/i.test(engine)) return ['openai', 'gemini', 'groq'];
+    if (/metadata|publishing/i.test(engine)) return ['openai', 'gemini', 'cohere', 'groq'];
+    return [];
+  }
+
+  private providerConfig(provider: AIProvider) {
+    return {
+      openai: {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: process.env.OPENAI_MODEL || process.env.AI_MODEL || 'gpt-4o',
+      },
+      gemini: {
+        apiKey: process.env.GEMINI_API_KEY,
+        model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
+      },
+      groq: {
+        apiKey: process.env.GROQ_API_KEY,
+        model: process.env.GROQ_MODEL || process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+      },
+      openrouter: {
+        apiKey: process.env.OPENROUTER_API_KEY,
+        model: process.env.OPENROUTER_MODEL || 'openrouter/free',
+      },
+      mistral: {
+        apiKey: process.env.MISTRAL_API_KEY,
+        model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
+      },
+      cerebras: {
+        apiKey: process.env.CEREBRAS_API_KEY,
+        model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
+      },
+      deepseek: {
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      },
+      together: {
+        apiKey: process.env.TOGETHER_API_KEY,
+        model: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+      },
+      fireworks: {
+        apiKey: process.env.FIREWORKS_API_KEY,
+        model: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+      },
+      cohere: {
+        apiKey: process.env.COHERE_API_KEY,
+        model: process.env.COHERE_MODEL || 'command-a-03-2025',
+      },
+    }[provider];
   }
 
   private isProvider(provider: string): provider is AIProvider {
@@ -143,7 +209,8 @@ export class AIService {
       || provider === 'cerebras'
       || provider === 'deepseek'
       || provider === 'together'
-      || provider === 'fireworks';
+      || provider === 'fireworks'
+      || provider === 'cohere';
   }
 
   private openAICompatibleEndpoint(provider: AIProvider) {
@@ -287,6 +354,51 @@ export class AIService {
     throw lastError;
   }
 
+  private async callCohere<T>(prompt: string, templateData: T, apiKey: string, model: string): Promise<T> {
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout('https://api.cohere.com/v2/chat', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'X-Client-Name': 'Cervantes Local Editorial Engine',
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.3,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: prompt },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          if (response.status === 429 && attempt < this.maxAttempts) {
+            await new Promise(res => setTimeout(res, attempt * 3000));
+            continue;
+          }
+          throw new Error(`cohere request failed: ${response.status}${body ? ` ${body.slice(0, 300)}` : ''}`);
+        }
+
+        const json = (await response.json()) as {
+          message?: { content?: Array<{ type?: string; text?: string }> };
+        };
+        const content = json.message?.content?.map((part) => part.text || '').join('').trim();
+        if (!content) throw new Error('cohere returned an empty response');
+
+        return this.parseProviderJson(content, templateData);
+      } catch (err) {
+        lastError = err as Error;
+        if (/cohere request failed:\s*(400|401|403)/i.test(lastError.message)) break;
+      }
+    }
+    throw lastError;
+  }
+
   private async fetchWithTimeout(url: string, init: RequestInit) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
@@ -352,6 +464,11 @@ export class AIService {
       result?: string;
       status: string;
       error?: string;
+      taskType?: string;
+      providerChain?: string;
+      selectedProvider?: string;
+      fallbackUsed?: boolean;
+      humanReadableError?: string;
     }) => Promise<unknown>,
   ) {
     await persist({
@@ -363,6 +480,10 @@ export class AIService {
       result: JSON.stringify(result.data),
       status: result.error ? 'FALLBACK' : 'DONE',
       error: result.error,
+      taskType: engine,
+      selectedProvider: result.provider,
+      fallbackUsed: result.provider === 'template' || Boolean(result.error),
+      humanReadableError: result.error,
     });
     return {
       ...result,

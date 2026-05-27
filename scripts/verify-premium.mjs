@@ -105,6 +105,7 @@ for (const phase of [
   'publishing',
   'visual-assets',
   'preview',
+  'export',
 ]) {
   project = await request(`${api}/projects/${project.id}/gates/${phase}`, {
     method: 'POST',

@@ -29,11 +29,13 @@ import {
 } from '../services/qualityService';
 import { SelectiveRegenerationService } from '../editorial/selectiveRegenerationService';
 import { EditorialThemeEngine } from '../editorial/themeEngine';
+import { AIOrchestrator, AITaskType } from '../ai/aiOrchestrator';
 
 const router = Router();
 const exporter = new ExportService();
 const layoutService = new EditorialLayoutService();
 const selectiveRegen = new SelectiveRegenerationService();
+const aiOrchestrator = new AIOrchestrator();
 const root = path.resolve(__dirname, '../../../..');
 const exportDir = path.join(root, 'storage', 'exports');
 
@@ -104,7 +106,20 @@ async function projectOr404(id: number) {
   return project;
 }
 
-async function logAI(projectId: number, engine: string, generated: { provider: string; model?: string; prompt?: string; data: unknown; error?: string }) {
+async function logAI(projectId: number, engine: string, generated: {
+  provider: string;
+  model?: string;
+  prompt?: string;
+  data: unknown;
+  error?: string;
+  taskType?: string;
+  providerChain?: string[] | string;
+  selectedProvider?: string;
+  latencyMs?: number;
+  qualityScore?: number;
+  fallbackUsed?: boolean;
+  humanReadableError?: string;
+}) {
   await prisma.aIUsageLog.create({
     data: {
       projectId,
@@ -115,6 +130,13 @@ async function logAI(projectId: number, engine: string, generated: { provider: s
       result: JSON.stringify(generated.data),
       status: generated.error ? 'FALLBACK' : 'DONE',
       error: generated.error,
+      taskType: generated.taskType,
+      providerChain: Array.isArray(generated.providerChain) ? generated.providerChain.join(',') : generated.providerChain,
+      selectedProvider: generated.selectedProvider || generated.provider,
+      latencyMs: generated.latencyMs,
+      qualityScore: generated.qualityScore,
+      fallbackUsed: generated.fallbackUsed || generated.provider === 'template' || Boolean(generated.error),
+      humanReadableError: generated.humanReadableError,
     },
   });
 }
@@ -740,6 +762,49 @@ router.post('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     res.json(await projectOr404(Number(req.params.id)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/ai/usage', async (req, res, next) => {
+  try {
+    const logs = await prisma.aIUsageLog.findMany({
+      where: { projectId: Number(req.params.id) },
+      orderBy: { createdAt: 'desc' },
+      take: 80,
+    });
+    const providerSummary = logs.reduce<Record<string, { total: number; fallbacks: number; avgQuality: number; avgLatencyMs: number }>>((acc, log) => {
+      const key = log.selectedProvider || log.provider;
+      const current = acc[key] || { total: 0, fallbacks: 0, avgQuality: 0, avgLatencyMs: 0 };
+      const nextTotal = current.total + 1;
+      acc[key] = {
+        total: nextTotal,
+        fallbacks: current.fallbacks + (log.fallbackUsed || log.status === 'FALLBACK' ? 1 : 0),
+        avgQuality: Math.round(((current.avgQuality * current.total) + (log.qualityScore || 0)) / nextTotal),
+        avgLatencyMs: Math.round(((current.avgLatencyMs * current.total) + (log.latencyMs || 0)) / nextTotal),
+      };
+      return acc;
+    }, {});
+    res.json({ logs, providerSummary });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/ai/run-task', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const taskType = String(req.body?.taskType || 'general') as AITaskType;
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt) {
+      res.status(400).json({ error: 'Prompt is required' });
+      return;
+    }
+    const templateData = req.body?.templateData || { content: '' };
+    const generated = await aiOrchestrator.run(taskType, templateData, prompt);
+    await logAI(projectId, taskType, generated);
+    res.json(generated);
   } catch (error) {
     next(error);
   }

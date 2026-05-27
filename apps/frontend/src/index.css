@@ -1324,6 +1324,7 @@ textarea {
   .productionHero,
   .nextActionPanel,
   .productionLayout,
+  .aiHero,
   .platformPreview {
     grid-template-columns: 1fr;
   }
@@ -1577,4 +1578,122 @@ textarea {
   margin: 0;
   padding: 8px 12px 0 24px;
   color: #f2d16b;
+}
+
+.aiHero {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.aiHero > div {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #2a2d30;
+  background: #171a1d;
+  padding: 18px;
+}
+
+.aiHero span,
+.aiTaskGrid span,
+.aiProviderHeader span {
+  color: #aeb5b8;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.aiHero strong {
+  color: #f4d77c;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.aiHero p,
+.aiProviderCard p {
+  margin: 0;
+  color: #cfd6d7;
+  line-height: 1.45;
+}
+
+.aiTaskGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.aiTaskGrid div {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #2a2d30;
+  background: #101214;
+  padding: 12px;
+}
+
+.aiTaskGrid strong {
+  color: #f5f2ea;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.aiProviderGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.aiProviderCard {
+  display: grid;
+  gap: 12px;
+  min-height: 220px;
+  border: 1px solid #343a3f;
+  background: #101214;
+  padding: 16px;
+}
+
+.aiProviderCard.configured {
+  border-color: #816a19;
+}
+
+.aiProviderCard.ready {
+  border-color: #3a7d7c;
+}
+
+.aiProviderHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.aiProviderHeader h3 {
+  margin: 4px 0 0;
+  font-size: 18px;
+}
+
+.aiProviderHeader strong {
+  max-width: 138px;
+  border: 1px solid #3b4247;
+  color: #f4d77c;
+  padding: 5px 8px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.aiProviderCard small {
+  color: #aeb5b8;
+}
+
+.aiCapabilityRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.aiCapabilityRow span {
+  border: 1px solid #2a2d30;
+  color: #dbe7e4;
+  padding: 4px 7px;
+  font-size: 12px;
 }
