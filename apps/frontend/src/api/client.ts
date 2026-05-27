@@ -44,6 +44,25 @@ export const api = {
       body: JSON.stringify({}),
     }),
   layoutReport: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/layout/report`),
+  layoutStyles: (id: number) => request<{ styles: any[] }>(`/api/projects/${id}/layout/styles`),
+  layoutPages: (id: number) => request<{ pages: any[] }>(`/api/projects/${id}/layout/pages`),
+  layoutRegeneratePage: (id: number, pageId: string) => 
+    request<Record<string, unknown>>(`/api/projects/${id}/layout/pages/${pageId}/regenerate`, { method: 'POST', headers: jsonHeaders }),
+  layoutApprovePage: (id: number, pageId: string) => 
+    request<Record<string, unknown>>(`/api/projects/${id}/layout/pages/${pageId}/approve`, { method: 'POST', headers: jsonHeaders }),
+  layoutChangeTemplate: (id: number, pageId: string, template: string) => 
+    request<Record<string, unknown>>(`/api/projects/${id}/layout/pages/${pageId}/template`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ template }),
+    }),
+  artDirectionReport: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/art-direction/report`),
+  applyArtDirection: (id: number, styleKey?: string) =>
+    request<Record<string, unknown>>(`/api/projects/${id}/art-direction/apply`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({ styleKey }),
+    }),
   setGate: (id: number, phase: string, data: Record<string, unknown>) =>
     request<Project>(`/api/projects/${id}/gates/${phase}`, {
       method: 'POST',

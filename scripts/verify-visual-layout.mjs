@@ -21,10 +21,12 @@ const id = process.argv[2] || '14';
 
 const render = await request(`${api}/projects/${id}/layout/render`, { method: 'POST', body: JSON.stringify({}) });
 assert(render.status === 'APPROVED', `Visual layout not approved: ${JSON.stringify(render.report)}`);
+assert(render.professionalReport?.status === 'APPROVED', `Professional report not approved: ${JSON.stringify(render.professionalReport)}`);
 assert(render.report?.pageCount >= 8, 'Visual layout has too few pages.');
 assert(render.report?.assetCount >= 7, 'Visual layout has too few assets.');
 
 const html = await request(`${api}/projects/${id}/preview`);
+assert(html.includes('professional-layout'), 'Preview missing professional layout shell.');
 assert(html.includes('book-cover'), 'Preview missing book cover shell.');
 assert(html.includes('chapter-opener'), 'Preview missing chapter opener.');
 assert(html.includes('figure-page'), 'Preview missing figure page.');

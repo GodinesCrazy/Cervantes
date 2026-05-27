@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, Outlet, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { DataPanel } from '../components/DataPanel';
@@ -740,13 +740,43 @@ export function PreviewPage() {
   const [mode, setMode] = useState<'pdf' | 'epub' | 'package'>('pdf');
   const [busy, setBusy] = useState(false);
   const [layoutReport, setLayoutReport] = useState<Record<string, unknown> | null>(null);
+  const [pages, setPages] = useState<any[]>([]);
+  const [styles, setStyles] = useState<any[]>([]);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(100);
+  const selectedStyleKey = styles.find((style) => style.recommended)?.key || styles[0]?.key || '';
+
+  const fetchPages = useCallback(async () => {
+    try {
+      const res = await api.layoutPages(project.id);
+      setPages(res.pages || []);
+      if (res.pages?.length && !selectedPageId) setSelectedPageId(res.pages[0].id);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [project.id, selectedPageId]);
+
+  const fetchStyles = useCallback(async () => {
+    try {
+      const res = await api.layoutStyles(project.id);
+      setStyles(res.styles || []);
+    } catch (error) {
+      console.error(error);
+    }
+  }, [project.id]);
+
+  useEffect(() => {
+    fetchPages();
+    fetchStyles();
+    api.layoutReport(project.id).then(setLayoutReport).catch(() => setLayoutReport(null));
+  }, [project.id, fetchPages, fetchStyles]);
 
   async function regenerateLayout() {
     setBusy(true);
     try {
       const result = await api.renderLayout(project.id);
       setLayoutReport((result.report as Record<string, unknown>) || result);
+      await fetchPages();
       showToast('Maquetación editorial regenerada', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error al regenerar layout', 'error');
@@ -755,48 +785,151 @@ export function PreviewPage() {
     }
   }
 
-  useEffect(() => {
-    api.layoutReport(project.id).then(setLayoutReport).catch(() => setLayoutReport(null));
-  }, [project.id]);
+  async function approvePage(pageId: string) {
+    try {
+      await api.layoutApprovePage(project.id, pageId);
+      await fetchPages();
+      showToast('Página aprobada', 'success');
+    } catch (error) {
+      showToast('Error al aprobar', 'error');
+    }
+  }
+
+  async function regeneratePage(pageId: string) {
+    try {
+      await api.layoutRegeneratePage(project.id, pageId);
+      await fetchPages();
+      showToast('Página marcada para regeneración', 'success');
+    } catch (error) {
+      showToast('Error al regenerar', 'error');
+    }
+  }
+
+  async function changeTemplate(pageId: string, template: string) {
+    try {
+      await api.layoutChangeTemplate(project.id, pageId, template);
+      await fetchPages();
+      showToast('Plantilla cambiada', 'success');
+    } catch (error) {
+      showToast('Error al cambiar plantilla', 'error');
+    }
+  }
+
+  async function applyStyle(styleKey: string) {
+    setBusy(true);
+    try {
+      const result = await api.applyArtDirection(project.id, styleKey);
+      setLayoutReport(result);
+      await fetchPages();
+      await fetchStyles();
+      showToast('Dirección de arte aplicada', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error al aplicar estilo', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const selectedPage = pages.find(p => p.id === selectedPageId);
+  const approvedPageCount = pages.filter((page) => page.status === 'APPROVED').length;
 
   return (
     <>
-      <Header title="Vista previa del ebook" project={project} />
+      <Header title="Editor visual de páginas" project={project} />
       <div className="previewToolbar">
         <div className="tabs">
-          <button className={mode === 'pdf' ? 'active' : ''} onClick={() => setMode('pdf')}>PDF Preview</button>
-          <button className={mode === 'epub' ? 'active' : ''} onClick={() => setMode('epub')}>EPUB/Reflow Preview</button>
-          <button className={mode === 'package' ? 'active' : ''} onClick={() => setMode('package')}>Publishing Package</button>
+          <button className={mode === 'pdf' ? 'active' : ''} onClick={() => setMode('pdf')}>Mesa editorial</button>
+          <button className={mode === 'epub' ? 'active' : ''} onClick={() => setMode('epub')}>EPUB/Reflow</button>
+          <button className={mode === 'package' ? 'active' : ''} onClick={() => setMode('package')}>Paquete</button>
         </div>
-        <a className="button primary" href={`/api/projects/${project.id}/preview.pdf`}>
-          Descargar preview PDF
+        <select className="themeSelector" value={selectedStyleKey} onChange={(event) => applyStyle(event.target.value)} disabled={busy}>
+          {styles.map(s => (
+             <option key={s.key} value={s.key}>{s.key}{s.recommended ? ' recomendado' : ''}</option>
+          ))}
+        </select>
+        <a className="button primary" href={`/api/projects/${project.id}/preview.pdf`} target="_blank" rel="noreferrer">
+          Descargar PDF
         </a>
         <button className="button" onClick={regenerateLayout} disabled={busy}>
           {busy && <span className="spinner" />}
-          Regenerar maquetación
+          Renderizar Layout Completo
         </button>
       </div>
       <section className="previewStatus">
         <div>
-          <span>Calidad visual</span>
-          <strong>{String(layoutReport?.status || 'Pendiente')}</strong>
+          <span>Estándar profesional</span>
+          <strong>{String((layoutReport?.professionalReport as any)?.status || (layoutReport?.professional as any)?.status || layoutReport?.status || 'Pendiente')}</strong>
         </div>
         <div>
-          <span>Páginas</span>
-          <strong>{String(layoutReport?.pageCount || '-')}</strong>
+          <span>Páginas aprobadas</span>
+          <strong>{approvedPageCount}/{pages.length || '-'}</strong>
         </div>
         <div>
-          <span>Assets</span>
-          <strong>{String(layoutReport?.assetCount || '-')}</strong>
+          <span>Estilo activo</span>
+          <strong>{selectedStyleKey || '-'}</strong>
         </div>
         <label>
           Zoom
-          <input type="range" min={70} max={130} value={zoom} onChange={(event) => setZoom(Number(event.target.value))} />
+          <input type="range" min={50} max={150} value={zoom} onChange={e => setZoom(Number(e.target.value))} />
         </label>
       </section>
-      {mode !== 'package' ? (
-        <section className={mode === 'epub' ? 'previewShell reflow' : 'previewShell'} style={{ ['--preview-zoom' as string]: `${zoom}%` }}>
-          <iframe title={`Vista previa de ${project.name}`} src={`/api/projects/${project.id}/preview`} />
+
+      {mode === 'pdf' ? (
+        <div className="page-builder-container">
+          <aside className="page-thumbnails">
+            {pages.map((page, i) => (
+              <div 
+                key={page.id} 
+                className={`thumbnail-card ${selectedPageId === page.id ? 'selected' : ''}`}
+                onClick={() => setSelectedPageId(page.id)}
+              >
+                <div className="thumbnail-preview">
+                   <iframe src={`/api/projects/${project.id}/preview#page-${i+1}`} scrolling="no" tabIndex={-1} />
+                </div>
+                <div className="thumbnail-info">
+                  <span className="page-num">Pág {i+1}</span>
+                  <span className="page-type">{page.type.substring(0, 8)}...</span>
+                  <span className={`status-badge ${String(page.status || '').toLowerCase()}`} title={page.status}>{page.status === 'APPROVED' ? 'OK' : page.status === 'NEEDS_REVISION' ? 'Revisar' : 'Pendiente'}</span>
+                </div>
+              </div>
+            ))}
+          </aside>
+          
+          <main className="page-editor-main">
+            {selectedPage && (
+               <div className="page-actions-bar">
+                 <div className="page-meta">
+                   <h3>Página {pages.indexOf(selectedPage) + 1}: {selectedPage.title}</h3>
+                   <span className="quality-note">{selectedPage.qualityNote || 'Pendiente de revisión visual'}</span>
+                 </div>
+                 <div className="actions">
+                    <select value={selectedPage.type} onChange={e => changeTemplate(selectedPage.id, e.target.value)}>
+                      <option value="cover">Portada</option>
+                      <option value="title">Portadilla</option>
+                      <option value="toc">Índice visual</option>
+                      <option value="chapter-opener">Apertura Capítulo</option>
+                      <option value="reading-page">Página de lectura</option>
+                      <option value="figure-page">Figura / Lámina</option>
+                      <option value="worksheet">Worksheet</option>
+                      <option value="appendix">Apéndice</option>
+                      <option value="credits">Créditos</option>
+                    </select>
+                    <button className="button" onClick={() => regeneratePage(selectedPage.id)}>Otra variante</button>
+                    {selectedPage.status !== 'APPROVED' && (
+                       <button className="button primary" onClick={() => approvePage(selectedPage.id)}>Aprobar página</button>
+                    )}
+                 </div>
+               </div>
+            )}
+            
+            <section className="previewShell pageBuilderPreview" style={{ ['--preview-zoom' as string]: `${zoom}%` }}>
+               <iframe title="Vista previa" src={`/api/projects/${project.id}/preview${selectedPage ? `#page-${pages.indexOf(selectedPage)+1}` : ''}`} />
+            </section>
+          </main>
+        </div>
+      ) : mode === 'epub' ? (
+        <section className="previewShell reflow">
+          <iframe title="Reflow" src={`/api/projects/${project.id}/preview`} />
         </section>
       ) : (
         <DataPanel title="Paquete de publicación" data={{ metadata: project.metadataPackage, checklist: project.publishingChecklist, readiness: project.publicationReadiness, exports: project.exportPackages }} />

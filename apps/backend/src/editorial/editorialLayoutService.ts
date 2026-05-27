@@ -6,6 +6,12 @@ import { EditorialHtmlRenderer } from './htmlRenderer';
 import { EditorialLayoutEngine, type LayoutDocument } from './layoutEngine';
 import { EditorialThemeEngine } from './themeEngine';
 import { VisualQualityInspector, type VisualQualityReport } from './visualQualityInspector';
+import { EditorialDepthInspector } from './depthInspector';
+import { ProfessionalArtDirectionEngine, type ArtDirectionReport } from './professionalArtDirectionEngine';
+import { EditorialRewriteEngine } from './editorialRewriteEngine';
+import { PremiumPageTemplateEngine } from './premiumPageTemplateEngine';
+import { ProfessionalEbookInspector, type ProfessionalEbookReport } from './professionalEbookInspector';
+import { EditorialPageComposer, type PersistedPageState } from './pageComposer';
 
 const root = path.resolve(__dirname, '../../../..');
 const exportDir = path.join(root, 'storage', 'exports');
@@ -28,6 +34,8 @@ export type RenderedEditorialLayout = {
   html: string;
   htmlPath: string;
   report: VisualQualityReport;
+  artDirection: ArtDirectionReport;
+  professionalReport: ProfessionalEbookReport;
 };
 
 export class EditorialLayoutService {
@@ -35,6 +43,12 @@ export class EditorialLayoutService {
   private readonly assetEngine = new EditorialAssetEngine(exportDir);
   private readonly renderer = new EditorialHtmlRenderer();
   private readonly inspector = new VisualQualityInspector();
+  private readonly depthInspector = new EditorialDepthInspector();
+  private readonly artDirection = new ProfessionalArtDirectionEngine();
+  private readonly rewriteEngine = new EditorialRewriteEngine();
+  private readonly templateEngine = new PremiumPageTemplateEngine();
+  private readonly professionalInspector = new ProfessionalEbookInspector();
+  private readonly pageComposer = new EditorialPageComposer();
 
   async assembleManuscript(projectId: number) {
     const project = await prisma.project.findUnique({
@@ -52,9 +66,9 @@ export class EditorialLayoutService {
     const subtitle = project.metadataPackage?.subtitle || 'Guia premium practica y visual';
     const toc = project.chapterPlans.map((chapter) => `${chapter.chapterNumber}. ${chapter.title}`).join('\n');
     const body = project.manuscriptBlocks
-      .map((block) => block.content || `# ${block.blockTitle}\n\nPendiente de redaccion.`)
+      .map((block) => this.rewriteEngine.rewriteBlock(block.blockTitle, block.content, project.name))
       .join('\n\n---\n\n');
-    return `![Portada editorial](assets/cover.svg)
+    return this.rewriteEngine.rewriteMarkdown(`![Portada editorial](assets/cover.svg)
 
 # ${title}
 
@@ -110,13 +124,14 @@ This ebook is designed as a premium practical guide with a clear method, visual 
 # Creditos visuales
 
 Assets SVG generados localmente por Cervantes como elementos editables y reemplazables.
-`;
+`);
   }
 
-  async buildLayoutDocument(projectId: number, markdown?: string) {
+  async buildLayoutDocument(projectId: number, markdown?: string, preferredStyle?: string | null) {
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: {
+        idea: true,
         manuscriptBlocks: { orderBy: { order: 'asc' } },
         chapterPlans: { orderBy: { order: 'asc' } },
         marketResearch: true,
@@ -126,33 +141,65 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     });
     if (!project) throw new Error('Project not found');
     const manuscript = markdown || (await this.assembleManuscript(projectId));
-    const theme = EditorialThemeEngine.fromVisualBible(project.visualBible);
-    return this.layoutEngine.build(project, theme, manuscript);
+    const latest = await prisma.editorialLayout.findFirst({ where: { projectId }, orderBy: { createdAt: 'desc' } });
+    const activeStyle = preferredStyle || latest?.activeStyle || latest?.themeKey;
+    const direction = this.artDirection.choose(project, activeStyle);
+    const rewrittenProject = {
+      ...project,
+      manuscriptBlocks: project.manuscriptBlocks.map((block) => ({
+        ...block,
+        content: this.rewriteEngine.rewriteBlock(block.blockTitle, block.content, project.name),
+      })),
+    };
+    const baseLayout = this.layoutEngine.build(rewrittenProject, direction.theme || EditorialThemeEngine.fromVisualBible(project.visualBible), manuscript);
+    const enhancedLayout = this.templateEngine.enhance(baseLayout);
+    const previousStates = this.parsePageStates(latest?.pageTemplates);
+    if (previousStates.length) {
+      enhancedLayout.pages = this.pageComposer.merge(enhancedLayout.pages, previousStates);
+    }
+    return enhancedLayout;
   }
 
-  async renderProject(projectId: number, options: { assetBase?: string; persist?: boolean } = {}): Promise<RenderedEditorialLayout> {
+  async renderProject(projectId: number, options: { assetBase?: string; persist?: boolean; themeKey?: string } = {}): Promise<RenderedEditorialLayout> {
     await ensureDir();
-    const layout = await this.buildLayoutDocument(projectId);
+    const layout = await this.buildLayoutDocument(projectId, undefined, options.themeKey);
     await this.assetEngine.generate(layout);
     await this.syncVisualAssets(projectId, layout);
     const html = this.renderer.render(layout, options.assetBase || 'assets');
     const htmlPath = path.join(exportDir, `${projectId}-${slugify(layout.title)}-editorial-preview.html`);
     await fs.writeFile(htmlPath, html, 'utf8');
     const report = await this.inspector.inspect(layout, html, htmlPath);
+    const depthReport = this.depthInspector.inspect(layout);
+    const professionalReport = await this.professionalInspector.inspect(layout, html);
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { idea: true, marketResearch: true, visualBible: true },
+    });
+    if (!project) throw new Error('Project not found');
+    const artDirection = this.artDirection.choose(project, layout.theme.key);
+    const pageStates = this.pageComposer.summarize(layout.pages);
+    const pageApprovals = Object.fromEntries(pageStates.map((page) => [page.id, page.status]));
+    const status = report.status === 'APPROVED' && depthReport.status === 'APPROVED' && professionalReport.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
+    const combinedReport = { ...report, status, professional: professionalReport, depth: depthReport } as VisualQualityReport;
+    
     if (options.persist !== false) {
       await prisma.editorialLayout.create({
         data: {
           projectId,
           themeKey: layout.theme.key,
-          pageTemplates: JSON.stringify(layout.pages.map((page) => ({ id: page.id, type: page.type, assetRole: page.assetRole }))),
+          activeStyle: layout.theme.key,
+          pageTemplates: JSON.stringify(pageStates),
+          renderedPages: JSON.stringify(pageStates),
+          pageApprovals: JSON.stringify(pageApprovals),
           renderedHtmlPath: htmlPath,
-          visualReport: JSON.stringify(report),
-          status: report.status,
+          visualReport: JSON.stringify(combinedReport),
+          editorialReport: JSON.stringify({ artDirection, professional: professionalReport, depth: depthReport }),
+          status,
           lastRenderedAt: new Date(),
         },
       });
     }
-    return { layout, html, htmlPath, report };
+    return { layout, html, htmlPath, report: combinedReport, artDirection, professionalReport };
   }
 
   async latestReport(projectId: number) {
@@ -171,6 +218,31 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     const filePath = rendered.layout.assets[role];
     if (!filePath) throw new Error('Unsupported editorial asset');
     return filePath;
+  }
+
+  async artDirectionReport(projectId: number, preferredStyle?: string | null) {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { idea: true, marketResearch: true, visualBible: true },
+    });
+    if (!project) throw new Error('Project not found');
+    return this.artDirection.choose(project, preferredStyle);
+  }
+
+  async applyArtDirection(projectId: number, preferredStyle?: string | null) {
+    const report = await this.artDirectionReport(projectId, preferredStyle);
+    const rendered = await this.renderProject(projectId, { themeKey: report.styleKey, persist: true });
+    return { ...report, layoutStatus: rendered.professionalReport.status, pages: rendered.layout.pages.length };
+  }
+
+  private parsePageStates(value?: string | null): PersistedPageState[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as PersistedPageState[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   private async syncVisualAssets(projectId: number, layout: LayoutDocument) {

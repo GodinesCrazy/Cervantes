@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import fs from 'node:fs/promises';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import {
@@ -25,10 +26,13 @@ import {
   validateGumroadPackage,
   validateKdpPackage,
 } from '../services/qualityService';
+import { SelectiveRegenerationService } from '../editorial/selectiveRegenerationService';
+import { EditorialThemeEngine } from '../editorial/themeEngine';
 
 const router = Router();
 const exporter = new ExportService();
 const layoutService = new EditorialLayoutService();
+const selectiveRegen = new SelectiveRegenerationService();
 
 function slugify(value: string) {
   return value
@@ -428,7 +432,14 @@ router.get('/:id', async (req, res, next) => {
 
 router.get('/:id/preview', async (req, res, next) => {
   try {
-    res.type('html').send(await exporter.previewHtml(Number(req.params.id)));
+    const projectId = Number(req.params.id);
+    const latest = await prisma.editorialLayout.findFirst({ where: { projectId }, orderBy: { createdAt: 'desc' } });
+    if (latest?.renderedHtmlPath) {
+      const html = await fs.readFile(latest.renderedHtmlPath, 'utf8');
+      res.type('html').send(html.replace(/(["'(])assets\//g, `$1/api/projects/${projectId}/assets/`));
+    } else {
+      res.type('html').send(await exporter.previewHtml(projectId));
+    }
   } catch (error) {
     next(error);
   }
@@ -448,12 +459,14 @@ router.get('/:id/preview.pdf', async (req, res, next) => {
 router.post('/:id/layout/render', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
-    const rendered = await layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets` });
+    const rendered = await layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets`, themeKey: req.body?.themeKey });
     await upsertGate(projectId, 'preview', rendered.report.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Maquetacion visual: ${rendered.report.status}`);
     res.json({
       status: rendered.report.status,
       htmlPath: rendered.htmlPath,
       report: rendered.report,
+      artDirection: rendered.artDirection,
+      professionalReport: rendered.professionalReport,
       pages: rendered.layout.pages.map((page) => ({ id: page.id, type: page.type, title: page.title, assetRole: page.assetRole })),
       assets: Object.keys(rendered.layout.assets),
     });
@@ -467,6 +480,109 @@ router.get('/:id/layout/report', async (req, res, next) => {
     const projectId = Number(req.params.id);
     const report = (await layoutService.latestReport(projectId)) || (await layoutService.renderProject(projectId, { persist: true })).report;
     res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// --- Page Builder Routes ---
+
+router.get('/:id/layout/styles', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const recommendation = await layoutService.artDirectionReport(projectId).catch(() => null);
+    const styles = EditorialThemeEngine.styles().map(s => ({
+      key: s.key,
+      variant: s.variant,
+      colors: s.colors,
+      density: s.density,
+      ornament: s.ornament,
+      recommended: recommendation?.styleKey === s.key,
+    }));
+    res.json({ styles, recommendation });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/layout/pages', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    let pages = await selectiveRegen.pages(projectId);
+    if (pages.length === 0) {
+      const rendered = await layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets` });
+      pages = rendered.layout.pages.map((page, index) => ({
+        id: page.id,
+        type: page.type,
+        originalType: page.originalType || page.type,
+        title: page.title,
+        subtitle: page.subtitle,
+        assetRole: page.assetRole,
+        chapterNumber: page.chapterNumber,
+        status: page.status || 'APPROVED',
+        variant: page.variant || index % 3,
+        qualityNote: page.qualityNote || 'Página generada por la maqueta premium.',
+        number: index + 1,
+      }));
+    }
+    res.json({ pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/layout/pages/:pageId/regenerate', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const pageId = req.params.pageId;
+    await selectiveRegen.regeneratePage(projectId, pageId);
+    const pages = await selectiveRegen.pages(projectId);
+    res.json({ pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/layout/pages/:pageId/approve', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const pageId = req.params.pageId;
+    await selectiveRegen.approvePage(projectId, pageId);
+    const pages = await selectiveRegen.pages(projectId);
+    res.json({ pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/layout/pages/:pageId/template', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const pageId = req.params.pageId;
+    const { template } = req.body;
+    await selectiveRegen.changeTemplate(projectId, pageId, template);
+    const pages = await selectiveRegen.pages(projectId);
+    res.json({ pages });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/art-direction/apply', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const report = await layoutService.applyArtDirection(projectId, req.body?.styleKey);
+    await upsertGate(projectId, 'preview', report.layoutStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Direccion de arte aplicada: ${report.styleKey}`);
+    res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/art-direction/report', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    res.json(await layoutService.artDirectionReport(projectId));
   } catch (error) {
     next(error);
   }

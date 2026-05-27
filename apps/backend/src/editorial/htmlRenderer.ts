@@ -19,32 +19,33 @@ function assetUrl(role: string, assetBase: string) {
   return `${assetBase}/${role}.svg`;
 }
 
-function renderPage(page: LayoutPage, assetBase: string) {
+function renderPage(page: LayoutPage, assetBase: string, index: number) {
+  const pageId = `page-${index + 1}`;
   if (page.type === 'cover') {
-    return `<section class="book-cover" data-page-type="cover" aria-label="Portada editorial"><img src="${assetUrl('cover', assetBase)}" alt="Portada editorial premium"></section>`;
+    return `<section id="${pageId}" class="book-cover" data-page-type="cover" aria-label="Portada editorial"><img src="${assetUrl('cover', assetBase)}" alt="Portada editorial premium"></section>`;
   }
   if (page.type === 'title') {
-    return `<section class="book-page title-page" data-page-type="title"><p class="kicker">Edicion premium</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><img class="separator-art" src="${assetUrl('separator', assetBase)}" alt=""></section>`;
+    return `<section id="${pageId}" class="book-page title-page" data-page-type="title"><p class="kicker">Edicion premium</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><img class="separator-art" src="${assetUrl('separator', assetBase)}" alt=""></section>`;
   }
   if (page.type === 'toc') {
-    return `<section class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase)}" alt="Iconografia editorial"><ol>${page.content.map((item) => `<li>${inline(item)}</li>`).join('')}</ol></section>`;
+    return `<section id="${pageId}" class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase)}" alt="Iconografia editorial"><ol>${page.content.map((item) => `<li>${inline(item)}</li>`).join('')}</ol></section>`;
   }
   if (page.type === 'chapter-opener') {
-    return `<section class="book-page chapter-opener" data-page-type="chapter-opener"><img class="chapter-art" src="${assetUrl('chapter-opener', assetBase)}" alt="Apertura de capitulo"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><p class="standfirst">${inline(page.subtitle || '')}</p></section>`;
+    return `<section id="${pageId}" class="book-page chapter-opener" data-page-type="chapter-opener"><img class="chapter-art" src="${assetUrl('chapter-opener', assetBase)}" alt="Apertura de capitulo"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><p class="standfirst">${inline(page.subtitle || '')}</p></section>`;
   }
   if (page.type === 'figure-page') {
-    return `<section class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${assetUrl('figure-map', assetBase)}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${assetUrl('figure-map', assetBase)}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'worksheet') {
-    return `<section class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'appendix') {
-    return `<section class="book-page appendix-page" data-page-type="appendix"><p class="kicker">Apendice</p><h1>${inline(page.title)}</h1><div class="check-grid">${page.content.map((item) => `<div>${inline(item)}</div>`).join('')}</div></section>`;
+    return `<section id="${pageId}" class="book-page appendix-page" data-page-type="appendix"><p class="kicker">Apendice</p><h1>${inline(page.title)}</h1><div class="check-grid">${page.content.map((item) => `<div>${inline(item)}</div>`).join('')}</div></section>`;
   }
   if (page.type === 'credits') {
-    return `<section class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
-  return `<section class="book-page reading-page" data-page-type="reading-page"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><img class="separator-inline" src="${assetUrl('separator', assetBase)}" alt="">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+  return `<section id="${pageId}" class="book-page reading-page variant-${page.variant || 0}" data-page-type="reading-page"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><img class="separator-inline" src="${assetUrl('separator', assetBase)}" alt=""><aside class="margin-note"><strong>Guia de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
 }
 
 function css(theme: EditorialTheme) {
@@ -56,7 +57,7 @@ body{margin:0;background:#141414;color:var(--ink);font-family:${theme.typography
 .book-cover,.book-page{position:relative;width:210mm;min-height:297mm;margin:0 auto 18px;background:var(--paper2);box-shadow:0 20px 54px rgba(0,0,0,.35);overflow:hidden;break-after:page}
 .book-cover{background:var(--dark)}
 .book-cover img{display:block;width:100%;height:100%;object-fit:cover}
-.book-page{padding:25mm 24mm 22mm;background:radial-gradient(circle at 20% 12%,rgba(255,255,255,.86),rgba(255,255,255,0) 34%),linear-gradient(90deg,rgba(0,0,0,.045),transparent 24mm),var(--paper)}
+.book-page{padding:25mm 24mm 22mm;background:radial-gradient(circle at 20% 12%,rgba(255,255,255,.86),rgba(255,255,255,0) 34%),linear-gradient(90deg,rgba(0,0,0,.045),transparent 24mm),repeating-linear-gradient(100deg,rgba(90,70,30,.04) 0 1px,transparent 1px 12px),var(--paper)}
 .book-page:before{content:"";position:absolute;inset:9mm;border:1px solid rgba(183,146,54,.48);pointer-events:none}
 .book-page:after{content:"Cervantes";position:absolute;top:10mm;left:24mm;right:24mm;border-bottom:1px solid rgba(25,23,20,.2);padding-bottom:3mm;text-align:center;font:11px ${theme.typography.sans};letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
 h1{font-size:35px;line-height:1.08;margin:9mm 0 6mm;color:var(--ink);text-wrap:balance}
@@ -75,6 +76,9 @@ strong{font-weight:700;color:#111}em{color:var(--muted)}
 .chapter-opener h1{color:var(--paper2);font-size:48px}.chapter-opener .standfirst{color:#e6d3a6;font-size:18px}.chapter-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.58}
 .reading-page p:nth-of-type(2)::first-letter{float:left;font-size:56px;line-height:.85;padding:4px 8px 0 0;color:var(--gold)}
 .separator-inline{width:100%;height:24mm;object-fit:cover;margin:-2mm 0 4mm}
+.margin-note{float:right;width:43mm;margin:0 0 6mm 8mm;border:1px solid var(--line);border-top:5px solid var(--gold);padding:5mm;background:rgba(255,255,255,.48);font-family:${theme.typography.sans};font-size:12px;color:var(--muted)}
+.margin-note strong{display:block;color:var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2mm}.margin-note span{display:block;line-height:1.35}
+.page-folio{position:absolute;bottom:10mm;left:0;right:0;text-align:center;color:var(--muted);font:12px ${theme.typography.sans}}
 figure{margin:8mm 0;text-align:center;break-inside:avoid}figure img{max-width:100%;border:2px solid var(--gold);box-shadow:0 14px 34px rgba(29,25,17,.18)}figcaption{font:12px ${theme.typography.sans};color:var(--muted);margin-top:3mm}
 .worksheet-art,.mockup-art{width:100%;max-height:132mm;object-fit:contain;margin:4mm 0 7mm;border:1px solid var(--line);background:white}
 .bullet{display:grid;grid-template-columns:6mm 1fr;gap:3mm;padding:3mm 0 3mm 4mm;border-left:2px solid var(--gold);background:rgba(255,255,255,.42)}.bullet span{width:13px;height:13px;border:2px solid var(--accent);margin-top:2px}
@@ -87,7 +91,7 @@ figure{margin:8mm 0;text-align:center;break-inside:avoid}figure img{max-width:10
 
 export class EditorialHtmlRenderer {
   render(layout: LayoutDocument, assetBase = 'assets') {
-    const pages = layout.pages.map((page) => renderPage(page, assetBase)).join('\n');
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(layout.title)}</title><style>${css(layout.theme)}</style></head><body data-theme="${layout.theme.key}" data-variant="${layout.theme.variant}">${pages}</body></html>`;
+    const pages = layout.pages.map((page, index) => renderPage(page, assetBase, index)).join('\n');
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(layout.title)}</title><style>${css(layout.theme)}</style></head><body class="professional-layout" data-professional="true" data-theme="${layout.theme.key}" data-variant="${layout.theme.variant}">${pages}</body></html>`;
   }
 }

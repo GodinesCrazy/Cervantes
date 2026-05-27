@@ -330,6 +330,7 @@ export class ExportService {
     const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
     const assets = rendered.layout.assets;
     const html = rendered.html;
+    const pageApprovals = Object.fromEntries(rendered.layout.pages.map((page) => [page.id, page.status || 'APPROVED']));
     const mdBuild = await this.exportFormat(projectId, 'md');
     const docxBuild = await this.exportFormat(projectId, 'docx');
     const pdfBuild = await this.exportFormat(projectId, 'pdf');
@@ -416,6 +417,9 @@ ${JSON.stringify(kdp, null, 2)}
 
 ## Gumroad
 ${JSON.stringify(gumroad, null, 2)}
+
+## Professional Ebook
+${JSON.stringify(rendered.professionalReport, null, 2)}
 `;
     const output = await fs.open(zipPath, 'w');
     await output.close();
@@ -442,7 +446,21 @@ ${JSON.stringify(gumroad, null, 2)}
       archive.append(aiDeclaration, { name: 'ai_declaration.md' });
       archive.append(qualityReport, { name: 'quality_report.md' });
       archive.append(JSON.stringify(rendered.report, null, 2), { name: 'visual_quality_report.json' });
-      archive.append(JSON.stringify({ projectId, name: project.name, title, assets: Object.keys(assets), kdp, gumroad, visual: rendered.report }, null, 2), { name: 'manifest.json' });
+      archive.append(JSON.stringify(rendered.artDirection, null, 2), { name: 'visual_style.json' });
+      archive.append(JSON.stringify({ pages: rendered.layout.pages, report: rendered.report }, null, 2), { name: 'layout_report.json' });
+      archive.append(JSON.stringify(pageApprovals, null, 2), { name: 'page_approvals.json' });
+      archive.append(`# Professional Ebook Report
+
+Status: ${rendered.professionalReport.status}
+Score: ${rendered.professionalReport.score}
+
+## Actions
+${rendered.professionalReport.actions.map((action) => `- ${action}`).join('\n')}
+
+## Checks
+${JSON.stringify(rendered.professionalReport.checks, null, 2)}
+`, { name: 'professional_ebook_report.md' });
+      archive.append(JSON.stringify({ projectId, name: project.name, title, assets: Object.keys(assets), kdp, gumroad, visual: rendered.report, professional: rendered.professionalReport, style: rendered.artDirection.styleKey }, null, 2), { name: 'manifest.json' });
       archive.finalize().catch(reject);
     });
 
@@ -453,7 +471,7 @@ ${JSON.stringify(gumroad, null, 2)}
         packageType: 'complete',
         filePath: zipPath,
         fileSize: stats.size,
-        contents: 'ebook_premium.pdf, ebook_reflowable.epub, ebook_editable.docx, manuscript_master.md, cover_front.svg, gumroad_product_page.md, kdp_publication_checklist.md, metadata.json, ai_declaration.md, quality_report.md',
+        contents: 'ebook_premium.pdf, ebook_reflowable.epub, ebook_editable.docx, manuscript_master.md, cover_front.svg, gumroad_product_page.md, kdp_publication_checklist.md, metadata.json, ai_declaration.md, quality_report.md, visual_style.json, layout_report.json, page_approvals.json, professional_ebook_report.md',
       },
     });
   }

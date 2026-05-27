@@ -14,11 +14,15 @@ export type LayoutPageType =
 export type LayoutPage = {
   id: string;
   type: LayoutPageType;
+  originalType?: LayoutPageType;
   title: string;
   subtitle?: string;
   content: string[];
   assetRole?: string;
   chapterNumber?: number;
+  status?: 'PENDING' | 'NEEDS_REVISION' | 'APPROVED';
+  variant?: number;
+  qualityNote?: string;
 };
 
 export type LayoutDocument = {
@@ -47,6 +51,9 @@ function cleanLine(line: string) {
     .replace(/^#{1,4}\s*/, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
+    .replace(/^\|?[-:\s|]+\|?$/, '')
+    .replace(/\s*\|\s*/g, ' · ')
+    .replace(/^·\s*|\s*·$/g, '')
     .trim();
 }
 

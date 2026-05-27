@@ -15,10 +15,13 @@ Cervantes está listo como herramienta local privada para producir, auditar, pre
 - Research asistido/verificable por el usuario.
 - Assets visuales generados como placeholders/prompts aprobables.
 - Maquetación editorial visual premium local con páginas, assets SVG, apertura de capítulo, figuras y worksheets.
+- Dirección de arte profesional por nicho/mercado con estilos editoriales persistidos.
+- Mesa editorial de páginas con miniaturas, zoom, aprobación, regeneración y cambio de plantilla.
+- Reescritura editorial previa a layout para reducir tono de chat, Markdown visible y contenido superficial.
 - Vista previa integrada PDF/EPUB/package con descarga de preview PDF.
 - Exportación MD, DOCX, PDF, EPUB y ZIP final.
 - ZIP final con archivos KDP/Gumroad requeridos.
-- QA visual para detectar salida plana, marcas Markdown, falta de assets y fallback HTML.
+- QA visual/editorial/profesional para detectar salida plana, páginas demasiado textuales, marcas Markdown, falta de assets y fallback HTML.
 - Backup local de proyecto/workspace.
 - Verificadores automatizados premium y producción.
 
@@ -36,9 +39,11 @@ Comandos obligatorios:
 ```bash
 npm run build
 npm test
+node scripts/verify-visual-layout.mjs 14
+node scripts/verify-page-editor.mjs 14
+node scripts/verify-professional-ebook.mjs 14
 node scripts/verify-premium.mjs
 node scripts/verify-production.mjs
-node scripts/verify-visual-layout.mjs
 ```
 
-Último estado verificado: `GO_OPERATIVO_LOCAL_PRIVADO`.
+Último estado verificado: `GO_OPERATIVO_LOCAL_PRIVADO` con verificador profesional aprobado.

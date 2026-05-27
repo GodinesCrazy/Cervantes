@@ -104,6 +104,10 @@ for (const required of [
   'metadata.json',
   'ai_declaration.md',
   'quality_report.md',
+  'visual_style.json',
+  'layout_report.json',
+  'page_approvals.json',
+  'professional_ebook_report.md',
 ]) {
   assert(await fileContainsZipName(zipPath, required), `Final ZIP missing ${required}`);
 }

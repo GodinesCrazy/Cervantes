@@ -337,6 +337,9 @@ model VisualAsset {
   pagePlacement String?
   variant     Int      @default(0)
   qualityStatus String @default("PENDING")
+  variantHistory String?
+  pageId      String?
+  pageApprovalStatus String?
   aiGenerated Boolean  @default(false)
   rights      String?
   approvedAt  DateTime?
@@ -350,8 +353,12 @@ model EditorialLayout {
   projectId         Int
   themeKey          String   @default("premium-editorial")
   pageTemplates     String?
+  renderedPages     String?
+  pageApprovals     String?
   renderedHtmlPath  String?
   visualReport      String?
+  editorialReport   String?
+  activeStyle       String?
   status            String   @default("PENDING")
   lastRenderedAt    DateTime?
   createdAt         DateTime @default(now())
