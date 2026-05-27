@@ -54,6 +54,7 @@ FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
 ## Control de cuota y fallos
 
 - Si falta una clave, el proveedor se omite.
+- Si la clave existe pero la cuenta no tiene saldo, el proveedor se considera detectado pero no usable.
 - Si una clave es invalida, el proveedor entra en cooldown temporal.
 - Si hay `429`, timeout o cuota agotada, el proveedor tambien entra en cooldown.
 - Si ningun proveedor externo responde, se genera un borrador local largo para no perder trabajo, pero el bloque queda como `NEEDS_REVISION`.

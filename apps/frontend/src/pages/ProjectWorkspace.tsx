@@ -291,9 +291,147 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
         </div>
       )}
 
-      <DataPanel title="Resultado" data={project[config.panel]} />
+      {phaseKey === 'recovery' ? (
+        <RecoveryResult
+          project={project}
+          busy={busy}
+          onRun={run}
+          onApprove={approve}
+        />
+      ) : (
+        <DataPanel title="Resultado" data={project[config.panel]} />
+      )}
     </>
   );
+}
+
+function RecoveryResult({
+  project,
+  busy,
+  onRun,
+  onApprove,
+}: {
+  project: Project;
+  busy: boolean;
+  onRun: () => void;
+  onApprove: () => void;
+}) {
+  const navigate = useNavigate();
+  const report = project.recoveryReports?.[0] || null;
+  const fullReport = parseLooseJson(report?.fullReport);
+  const manuscript = String(report?.masterManuscript || '');
+  const wordCount = Number((fullReport as Record<string, unknown> | null)?.wordCount || countWords(manuscript));
+  const headings = Number((fullReport as Record<string, unknown> | null)?.headings || (manuscript.match(/^#/gm)?.length || 0));
+  const issues = Array.isArray((fullReport as Record<string, unknown> | null)?.issues)
+    ? ((fullReport as Record<string, unknown>).issues as string[])
+    : [];
+  const status = String(report?.assemblyStatus || (report ? 'DONE' : 'PENDING'));
+  const gate = (project.phaseGates || []).find((item) => item.phase === 'recovery');
+  const ready = status === 'DONE' && issues.length === 0 && wordCount >= 5000;
+
+  if (!report) {
+    return (
+      <section className="editorialStage">
+        <div>
+          <span className="eyebrow">Manuscrito maestro</span>
+          <h2>Ensambla el libro antes de diseñarlo</h2>
+          <p className="muted">La app unirá portada editorial, front matter, capítulos, tablas, checklist, declaración IA y recursos finales.</p>
+        </div>
+        <button className="button primary" onClick={onRun} disabled={busy}>
+          {busy && <span className="spinner" />}
+          Ensamblar manuscrito
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="editorialStage">
+      <div className="stageHeroLine">
+        <div>
+          <span className="eyebrow">Manuscrito maestro</span>
+          <h2>{ready ? 'Manuscrito ensamblado correctamente' : 'Manuscrito necesita revisión'}</h2>
+          <p className="muted">{String(report.cleanupLog || 'Contenido unido desde los bloques aprobados.')}</p>
+        </div>
+        <span className={`qualityBadge ${ready ? 'approved' : 'needs'}`}>{ready ? 'Listo' : 'Revisar'}</span>
+      </div>
+
+      <div className="metricGrid">
+        <div className="metricTile">
+          <span>Palabras</span>
+          <strong>{wordCount.toLocaleString('es-ES')}</strong>
+        </div>
+        <div className="metricTile">
+          <span>Secciones</span>
+          <strong>{headings}</strong>
+        </div>
+        <div className="metricTile">
+          <span>Bloques faltantes</span>
+          <strong>{formatListCount(report.missingBlocks)}</strong>
+        </div>
+        <div className="metricTile">
+          <span>Estado del gate</span>
+          <strong>{gate?.status || 'PENDING'}</strong>
+        </div>
+      </div>
+
+      {issues.length > 0 ? (
+        <div className="actionList">
+          <h3>La app debe corregir esto antes de avanzar</h3>
+          {issues.map((issue) => <p key={issue}>{issue}</p>)}
+        </div>
+      ) : (
+        <div className="nextStepBanner compact">
+          El manuscrito ya tiene estructura suficiente para pasar al diseño visual.
+        </div>
+      )}
+
+      <details className="technicalDetails">
+        <summary>Ver muestra del manuscrito ensamblado</summary>
+        <pre>{manuscript.slice(0, 3500)}{manuscript.length > 3500 ? '\n\n[...]' : ''}</pre>
+      </details>
+
+      <div className="actions">
+        <button className="button" onClick={onRun} disabled={busy}>
+          {busy && <span className="spinner" />}
+          Reensamblar
+        </button>
+        {gate?.status !== 'APPROVED' && (
+          <button className="button primary" onClick={onApprove} disabled={busy || !ready}>
+            Aprobar y pasar a diseño visual
+          </button>
+        )}
+        {gate?.status === 'APPROVED' && (
+          <button className="button primary" onClick={() => navigate(`/projects/${project.id}/visual-design`)}>
+            Continuar a diseño visual
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function parseLooseJson(value: unknown) {
+  if (typeof value !== 'string') return null;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function countWords(value: string) {
+  return value.split(/\s+/).filter(Boolean).length;
+}
+
+function formatListCount(value: unknown) {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'string') {
+    const parsed = parseLooseJson(value);
+    if (Array.isArray(parsed)) return parsed.length;
+    return value.trim() ? 1 : 0;
+  }
+  return 0;
 }
 
 export function GoNoGoPage() {

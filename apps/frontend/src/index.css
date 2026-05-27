@@ -1046,6 +1046,64 @@ textarea {
   font-size: 20px;
 }
 
+.editorialStage {
+  border: 1px solid #2a2d30;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 20px;
+  display: grid;
+  gap: 18px;
+}
+
+.stageHeroLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.metricTile {
+  border: 1px solid #2a2d30;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.18);
+  min-height: 86px;
+}
+
+.metricTile span {
+  display: block;
+  color: #aeb5b8;
+  font-size: 12px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.metricTile strong {
+  font-size: 22px;
+  color: #f5f2ea;
+}
+
+.actionList {
+  border-left: 3px solid #d5ae27;
+  background: rgba(210, 170, 40, 0.08);
+  padding: 16px;
+}
+
+.actionList h3 {
+  margin-top: 0;
+}
+
+.actionList p {
+  margin: 6px 0;
+}
+
+.technicalDetails pre {
+  white-space: pre-wrap;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #2a2d30;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
 .plainIssueList {
   display: grid;
   gap: 8px;
