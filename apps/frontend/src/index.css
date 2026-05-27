@@ -378,6 +378,49 @@ h2 {
   line-height: 1.45;
 }
 
+.assetProviderRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.assetProviderRow small {
+  color: #aeb5b8;
+}
+
+.assetProvider {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid #3b4247;
+  color: #dbe7e4;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.assetProvider.external {
+  border-color: #3a7d7c;
+  color: #dbe7e4;
+}
+
+.assetProvider.fallback {
+  border-color: #816a19;
+  color: #fff7d7;
+}
+
+.assetProvider.local {
+  color: #aeb5b8;
+}
+
+.assetActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .assetState {
   width: fit-content;
   border: 1px solid #816a19;
@@ -1207,6 +1250,10 @@ textarea {
 
   .assetCard {
     grid-template-columns: 1fr;
+  }
+
+  .assetActions {
+    justify-content: flex-start;
   }
 
   .qualityHero,

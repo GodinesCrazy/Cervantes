@@ -107,8 +107,11 @@ export async function autoApproveStructuralGates(projectId: number) {
   if (project.chapterPlans.length >= 5) {
     await upsertGate(projectId, 'chapter-plan', 'APPROVED', 'Índice validado: plan de capítulos suficiente.');
   }
-  if (project.manuscriptBlocks.length >= 5 && project.manuscriptBlocks.every((block) => (block.content || '').trim().length > 300)) {
-    await upsertGate(projectId, 'blocks', 'APPROVED', 'Bloques validados: contenido base suficiente para ensamblaje.');
+  if (
+    project.manuscriptBlocks.length >= 5
+    && project.manuscriptBlocks.every((block) => (block.wordCount || 0) >= 750 && block.status !== 'NEEDS_REVISION' && !/template/i.test(block.aiModel || ''))
+  ) {
+    await upsertGate(projectId, 'blocks', 'APPROVED', 'Bloques validados: contenido externo suficiente para ensamblaje.');
   }
 }
 
@@ -146,6 +149,10 @@ export async function gateReport(projectId: number) {
   if (!project.visualBible) blockers.push('Falta Biblia Visual.');
   if (project.chapterPlans.length < 5) blockers.push('Plan de capitulos insuficiente.');
   if (project.manuscriptBlocks.length < 5) blockers.push('Bloques de manuscrito insuficientes.');
+  if (project.manuscriptBlocks.some((block) => (block.wordCount || 0) < 750)) blockers.push('Hay capitulos por debajo del minimo editorial de 750 palabras.');
+  if (project.manuscriptBlocks.some((block) => block.status === 'NEEDS_REVISION' || /template/i.test(block.aiModel || ''))) {
+    blockers.push('Hay capitulos generados sin IA externa valida; deben regenerarse con Groq, Gemini, OpenRouter u OpenAI.');
+  }
   if (project.recoveryReports.length === 0) blockers.push('Falta reporte de recuperacion y ensamblaje.');
   if (project.visualAssets.length === 0) blockers.push('Faltan assets visuales planificados.');
   if (project.visualAssets.some((asset) => asset.approvalStatus !== 'APPROVED')) blockers.push('Hay assets visuales sin aprobar.');

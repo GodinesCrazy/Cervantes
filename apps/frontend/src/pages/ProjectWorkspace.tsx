@@ -5,6 +5,16 @@ import { DataPanel } from '../components/DataPanel';
 import { Progress, phases } from '../components/Progress';
 import type { ManuscriptBlock, Project, VisualAsset } from '../types/domain';
 
+declare global {
+  interface Window {
+    puter?: {
+      ai?: {
+        txt2img?: (prompt: string, options?: Record<string, unknown>) => Promise<unknown>;
+      };
+    };
+  }
+}
+
 type Context = {
   project: Project;
   refresh: () => Promise<void>;
@@ -383,17 +393,41 @@ export function BlocksPage() {
   const { project, refresh, showToast } = useProjectContext();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const [progressData, setProgressData] = useState<{ globalProgress?: number; currentChapterIndex?: number; chapterProgress?: number; message?: string } | null>(null);
+  const blocks = project.manuscriptBlocks || [];
+  const weakBlocks = blocks.filter((block) => (block.wordCount || 0) < 750);
+  const localFallbackBlocks = blocks.filter((block) => block.status === 'NEEDS_REVISION' || /template|skipped after recent provider failure/i.test(block.aiModel || ''));
 
   async function run() {
     setBusy(true);
+    setProgressData({ currentChapterIndex: 1, chapterProgress: 0, message: 'Iniciando proceso...' });
     try {
-      await api.runPhase(project.id, 'blocks');
+      await new Promise<void>((resolve, reject) => {
+        const source = new EventSource(`/api/projects/${project.id}/blocks/stream`);
+        source.onmessage = (e) => {
+          const data = JSON.parse(e.data);
+          if (data.error) {
+            source.close();
+            reject(new Error(data.error));
+          } else if (data.done) {
+            source.close();
+            resolve();
+          } else {
+            setProgressData(data);
+          }
+        };
+        source.onerror = (err) => {
+          source.close();
+          reject(new Error('SSE connection error.'));
+        };
+      });
       await refresh();
       showToast('Bloques generados', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error al generar', 'error');
     } finally {
       setBusy(false);
+      setProgressData(null);
     }
   }
 
@@ -411,19 +445,62 @@ export function BlocksPage() {
           </button>
         )}
       </div>
+      {blocks.length > 0 && (weakBlocks.length > 0 || localFallbackBlocks.length > 0) && (
+        <section className="qualitySummary" style={{ marginBottom: '1rem' }}>
+          <span className="eyebrow">Atención editorial</span>
+          <h3>Estos capítulos aún no están listos para publicación</h3>
+          <p className="muted">
+            {weakBlocks.length > 0 ? `${weakBlocks.length} capítulo(s) quedaron bajo el mínimo editorial. ` : ''}
+            {localFallbackBlocks.length > 0 ? `${localFallbackBlocks.length} capítulo(s) usaron respaldo local porque las IA externas no respondieron o agotaron cuota. Configura una API válida y vuelve a generar.` : ''}
+          </p>
+        </section>
+      )}
       <section className="list">
-        {(project.manuscriptBlocks || []).length === 0 && (
-          <p className="muted">Aún no hay bloques creados. Haz clic en "Crear bloques desde índice" para generar el esqueleto de tu libro.</p>
+        {busy && progressData ? (
+          (project.chapterPlans || []).map((plan, idx) => {
+            const isCurrent = (idx + 1) === progressData.currentChapterIndex;
+            const isDone = (idx + 1) < (progressData.currentChapterIndex || 0);
+            const progress = isDone ? 100 : (isCurrent ? progressData.chapterProgress : 0);
+            return (
+              <div className="projectRow" key={plan.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <div>
+                    <strong>{plan.title}</strong>
+                    <small>{plan.estimatedWords || 0} palabras est.</small>
+                  </div>
+                  <span style={{ color: isDone ? 'var(--success)' : isCurrent ? 'var(--accent, #eab308)' : 'var(--muted)' }}>
+                    {isDone ? 'COMPLETADO' : isCurrent ? 'GENERANDO' : 'EN COLA'}
+                  </span>
+                </div>
+                {isCurrent && (
+                  <div style={{ width: '100%', marginTop: '0.75rem' }}>
+                    <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${progress || 0}%`, background: '#eab308', transition: 'width 0.3s' }} />
+                    </div>
+                    <small style={{ color: '#eab308', marginTop: '0.4rem', display: 'block', fontWeight: 500 }}>{progressData.message}</small>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          blocks.length === 0 ? (
+            <p className="muted">Aún no hay bloques creados. Haz clic en "Crear bloques desde índice" para generar el esqueleto de tu libro.</p>
+          ) : (
+            blocks.map((block) => (
+              <button className="projectRow clickable" key={block.id} onClick={() => navigate(`/projects/${project.id}/blocks/${block.id}`)}>
+                <div>
+                  <strong>{block.blockTitle}</strong>
+                  <small>
+                    {block.wordCount || 0} palabras
+                    {block.status === 'NEEDS_REVISION' || /template/i.test(block.aiModel || '') ? ' · requiere IA externa válida' : ''}
+                  </small>
+                </div>
+                <span>{block.status}</span>
+              </button>
+            ))
+          )
         )}
-        {(project.manuscriptBlocks || []).map((block) => (
-          <button className="projectRow clickable" key={block.id} onClick={() => navigate(`/projects/${project.id}/blocks/${block.id}`)}>
-            <div>
-              <strong>{block.blockTitle}</strong>
-              <small>{block.wordCount || 0} palabras</small>
-            </div>
-            <span>{block.status}</span>
-          </button>
-        ))}
       </section>
     </>
   );
@@ -488,6 +565,7 @@ export function VisualDesignPage() {
   const navigate = useNavigate();
   const [busyId, setBusyId] = useState<number | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<number | null>(null);
+  const [aiBusyId, setAiBusyId] = useState<number | null>(null);
   const [approvedIds, setApprovedIds] = useState<Set<number>>(new Set());
   const [expandedAsset, setExpandedAsset] = useState<VisualAsset | null>(null);
   const allAssetsApproved = (project.visualAssets || []).length > 0 && (project.visualAssets || []).every((asset) => approvedIds.has(asset.id));
@@ -527,6 +605,72 @@ export function VisualDesignPage() {
       showToast('Nueva opción generada con la misma dirección visual', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error al regenerar asset', 'error');
+    } finally {
+      setRegeneratingId(null);
+    }
+  }
+
+  async function generateWithAI(asset: VisualAsset) {
+    setAiBusyId(asset.id);
+    try {
+      const promptInfo = await api.visualAssetPrompt(project.id, asset.id);
+      const puter = await loadPuter();
+      if (!puter?.ai?.txt2img) throw new Error('Puter.js no está disponible');
+      const rawImage = await puter.ai?.txt2img?.(promptInfo.prompt);
+      if (!rawImage) throw new Error('Puter no devolvió una imagen usable');
+      const dataUrl = await imageResultToDataUrl(rawImage);
+      await api.saveExternalAsset(project.id, asset.id, {
+        dataUrl,
+        provider: 'puter',
+        model: String(promptInfo.model || 'auto'),
+        prompt: promptInfo.prompt,
+        rights: 'Imagen generada con Puter.js y guardada localmente; revisar términos del proveedor antes de publicación externa.',
+      });
+      setApprovedIds((current) => {
+        const next = new Set(current);
+        next.delete(asset.id);
+        return next;
+      });
+      await refresh();
+      showToast('Imagen IA generada y guardada localmente. Revisa y aprueba.', 'success');
+    } catch (error) {
+      try {
+        const promptInfo = await api.visualAssetPrompt(project.id, asset.id).catch(() => ({ prompt: asset.prompt || asset.name }));
+        await api.externalAssetFallback(project.id, asset.id, {
+          provider: 'puter',
+          model: 'auto',
+          prompt: promptInfo.prompt,
+          error: error instanceof Error ? error.message : 'Puter no disponible',
+        });
+        await refresh();
+      } catch {
+        // Surface the original generation error below.
+      }
+      showToast(error instanceof Error ? `IA externa falló; fallback local activo: ${error.message}` : 'IA externa falló; fallback local activo', 'error');
+    } finally {
+      setAiBusyId(null);
+    }
+  }
+
+  async function useLocalFallback(asset: VisualAsset) {
+    setRegeneratingId(asset.id);
+    try {
+      await api.externalAssetFallback(project.id, asset.id, {
+        provider: asset.externalProvider || 'puter',
+        model: asset.externalModel || 'auto',
+        prompt: asset.externalPrompt || asset.prompt || asset.name,
+        error: 'Usuario eligió fallback SVG local.',
+      });
+      await api.regenerateAsset(project.id, asset.id);
+      setApprovedIds((current) => {
+        const next = new Set(current);
+        next.delete(asset.id);
+        return next;
+      });
+      await refresh();
+      showToast('Fallback local regenerado con la dirección visual actual', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error al activar fallback local', 'error');
     } finally {
       setRegeneratingId(null);
     }
@@ -578,14 +722,31 @@ export function VisualDesignPage() {
                   <small>{visualAssetSummary(asset)}</small>
                 </div>
                 <p>{cleanPrompt(asset.prompt)}</p>
+                <div className="assetProviderRow">
+                  <span className={`assetProvider ${asset.externalStatus === 'GENERATED' ? 'external' : asset.externalStatus === 'FALLBACK_USED' ? 'fallback' : 'local'}`}>
+                    {asset.externalStatus === 'GENERATED'
+                      ? `IA externa: ${asset.externalProvider || 'puter'}`
+                      : asset.externalStatus === 'FALLBACK_USED'
+                        ? 'Fallback local activo'
+                        : 'SVG local disponible'}
+                  </span>
+                  {asset.externalError && <small>{asset.externalError}</small>}
+                </div>
                 <span className={`assetState ${approvedIds.has(asset.id) ? 'approved' : 'pending'}`}>
                   {approvedIds.has(asset.id) ? 'Aprobado para exportación' : 'Pendiente de aprobación visual'}
                 </span>
               </div>
               <div className="assetActions">
+                <button className="button primary" onClick={() => generateWithAI(asset)} disabled={aiBusyId === asset.id || regeneratingId === asset.id || busyId === asset.id}>
+                  {aiBusyId === asset.id && <span className="spinner" />}
+                  Generar con IA
+                </button>
                 <button className="button" onClick={() => regenerateAsset(asset.id)} disabled={regeneratingId === asset.id || busyId === asset.id}>
                   {regeneratingId === asset.id && <span className="spinner" />}
-                  Otra opción
+                  Otra opción local
+                </button>
+                <button className="button" onClick={() => useLocalFallback(asset)} disabled={regeneratingId === asset.id || busyId === asset.id || aiBusyId === asset.id}>
+                  Fallback local
                 </button>
                 <button className="button" onClick={() => approveAsset(asset.id)} disabled={busyId === asset.id || approvedIds.has(asset.id) || regeneratingId === asset.id}>
                   {busyId === asset.id && <span className="spinner" />}
@@ -654,38 +815,75 @@ function visualAssetSummary(asset: VisualAsset) {
 
 function VisualAssetPreview({ projectId, asset, cacheKey, large = false }: { projectId: number; asset: VisualAsset; cacheKey: string; large?: boolean }) {
   const previewSrc = `/api/projects/${projectId}/visual-assets/${asset.id}/preview.svg?v=${encodeURIComponent(`${cacheKey}-${asset.replacementPath || ''}`)}`;
-  if (asset.assetType === 'cover') {
-    return (
-      <div className={`assetPreview image ${large ? 'large' : ''}`}>
-        <object data={previewSrc} type="image/svg+xml" aria-label="Portada frontal final actual">
-          <img src={previewSrc} alt="Portada frontal final actual" />
-        </object>
-      </div>
-    );
-  }
-  if (asset.assetType === 'figure') {
-    return (
-      <div className={`assetPreview image ${large ? 'large' : ''}`}>
-        <object data={previewSrc} type="image/svg+xml" aria-label="Mapa conceptual final actual">
-          <FigureFallback />
-        </object>
-      </div>
-    );
-  }
-  if (asset.assetType === 'mockup' || asset.assetType === 'worksheet') {
-    return (
-      <div className={`assetPreview image ${large ? 'large' : ''}`}>
-        <object data={previewSrc} type="image/svg+xml" aria-label={`${asset.name} final actual`}>
-          {asset.assetType === 'mockup' ? <MockupFallback /> : <WorksheetFallback />}
-        </object>
-      </div>
-    );
-  }
   return (
     <div className={`assetPreview image ${large ? 'large' : ''}`}>
-      <WorksheetFallback />
+      <img src={previewSrc} alt={`${asset.name} final actual`} />
     </div>
   );
+}
+
+let puterScriptPromise: Promise<typeof window.puter> | null = null;
+
+function loadPuter() {
+  if (window.puter?.ai?.txt2img) return Promise.resolve(window.puter);
+  if (puterScriptPromise) return puterScriptPromise;
+  puterScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[data-puter-js="true"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.puter), { once: true });
+      existing.addEventListener('error', () => reject(new Error('No se pudo cargar Puter.js')), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://js.puter.com/v2/';
+    script.async = true;
+    script.dataset.puterJs = 'true';
+    script.onload = () => {
+      if (window.puter?.ai?.txt2img) resolve(window.puter);
+      else reject(new Error('Puter.js cargó, pero txt2img no está disponible'));
+    };
+    script.onerror = () => reject(new Error('No se pudo cargar Puter.js'));
+    document.head.appendChild(script);
+  });
+  return puterScriptPromise;
+}
+
+async function imageResultToDataUrl(result: unknown): Promise<string> {
+  if (typeof result === 'string') {
+    if (result.startsWith('data:image/')) return result;
+    const response = await fetch(result);
+    if (!response.ok) throw new Error('No se pudo descargar la imagen generada');
+    return blobToDataUrl(await response.blob());
+  }
+  if (result instanceof Blob) return blobToDataUrl(result);
+  if (result instanceof HTMLImageElement) return imageElementToDataUrl(result);
+  if (result && typeof result === 'object') {
+    const candidate = result as { src?: unknown; url?: unknown; dataUrl?: unknown; dataURI?: unknown; image?: unknown };
+    for (const value of [candidate.dataUrl, candidate.dataURI, candidate.url, candidate.src, candidate.image]) {
+      if (value) return imageResultToDataUrl(value);
+    }
+  }
+  throw new Error('Formato de imagen Puter no reconocido');
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('No se pudo leer la imagen generada'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function imageElementToDataUrl(image: HTMLImageElement) {
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+  if (!canvas.width || !canvas.height) throw new Error('La imagen generada no tiene dimensiones válidas');
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas no disponible para guardar imagen');
+  context.drawImage(image, 0, 0);
+  return canvas.toDataURL('image/png');
 }
 
 function FigureFallback() {

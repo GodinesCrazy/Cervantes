@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import {
@@ -33,6 +34,8 @@ const router = Router();
 const exporter = new ExportService();
 const layoutService = new EditorialLayoutService();
 const selectiveRegen = new SelectiveRegenerationService();
+const root = path.resolve(__dirname, '../../../..');
+const exportDir = path.join(root, 'storage', 'exports');
 
 function slugify(value: string) {
   return value
@@ -346,6 +349,101 @@ function visualVariant(asset: { replacementPath?: string | null }) {
   } catch {
     return 0;
   }
+}
+
+function isWithinExports(filePath: string) {
+  const resolved = path.resolve(filePath);
+  const base = path.resolve(exportDir);
+  return resolved === base || resolved.startsWith(`${base}${path.sep}`);
+}
+
+function parseReplacementPath(value?: string | null) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { filePath?: unknown; source?: unknown; provider?: unknown; variant?: unknown };
+    const filePath = typeof parsed.filePath === 'string' ? parsed.filePath : undefined;
+    if (filePath && isWithinExports(filePath)) return { ...parsed, filePath };
+    return parsed;
+  } catch {
+    return isWithinExports(value) ? { filePath: value } : null;
+  }
+}
+
+function mimeFromPath(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  return 'image/svg+xml';
+}
+
+function extensionFromMime(mimeType: string) {
+  if (mimeType.includes('png')) return 'png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (mimeType.includes('webp')) return 'webp';
+  if (mimeType.includes('gif')) return 'gif';
+  if (mimeType.includes('svg+xml')) return 'svg';
+  return 'png';
+}
+
+function decodeImageDataUrl(dataUrl: unknown) {
+  if (typeof dataUrl !== 'string') throw new Error('dataUrl is required');
+  const match = dataUrl.match(/^data:(image\/(?:png|jpeg|jpg|webp|gif|svg\+xml));base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) throw new Error('Unsupported image data URL');
+  return {
+    mimeType: match[1].replace('image/jpg', 'image/jpeg'),
+    buffer: Buffer.from(match[2].replace(/\s/g, ''), 'base64'),
+  };
+}
+
+async function fileExists(filePath?: string | null) {
+  if (!filePath) return false;
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() && stat.size > 256;
+  } catch {
+    return false;
+  }
+}
+
+function buildExternalImagePrompt(project: Awaited<ReturnType<typeof projectOr404>>, asset: NonNullable<Awaited<ReturnType<typeof projectOr404>>['visualAssets']>[number]) {
+  const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
+  const style = asset.themeKey || project.visualBible?.visualConcept || 'premium editorial';
+  const language = project.languageOpportunity?.recommendedPrimary || project.marketResearch?.language || 'es';
+  const basePrompt = cleanPromptLike(asset.prompt || asset.description || asset.name);
+  const rolePrompts: Record<string, string> = {
+    cover: 'vertical premium front cover, commercial book cover, strong focal composition, no price text, no promotional badges, readable title area, editorial texture',
+    'chapter-opener': 'wide chapter opening illustration, immersive editorial plate, cinematic but refined, no clutter, no tiny text',
+    figure: 'premium conceptual editorial figure, useful visual explanation, elegant diagram blended with illustration, not PowerPoint, no tiny text',
+    separator: 'ornamental editorial separator, refined linework, transparent-like clean composition, consistent book ornament',
+    icons: 'consistent premium icon set, flat editorial symbols, coherent stroke weight, no text',
+    mockup: 'premium 3D ebook mockup for product page, clean commercial lighting, elegant background, no fake marketplace logos',
+    worksheet: 'premium printable worksheet page, editorial stationery style, clean fields, checklist elements, no illegible microtext',
+  };
+  return [
+    `Create a professional ebook visual asset for "${title}".`,
+    `Editorial role: ${asset.name} (${asset.layoutRole || asset.assetType}).`,
+    `Required use inside the ebook: ${asset.pagePlacement || 'publishing package'}.`,
+    `Style direction: ${style}.`,
+    `Language context: ${language}.`,
+    `Design brief: ${basePrompt}.`,
+    `Asset-specific instruction: ${rolePrompts[asset.assetType] || rolePrompts[asset.layoutRole || ''] || 'premium editorial image with clear hierarchy'}.`,
+    'The result must feel designed by a premium editorial art director, not AI generic art, not a slide deck, not a chatbot export.',
+    'Use coherent palette, tactile texture, elegant hierarchy, and a consistent visual system.',
+    'Avoid visible watermarks, platform logos, malformed text, distorted typography, low resolution, cheap stock-photo look, and random symbols.',
+  ].join('\n');
+}
+
+function cleanPromptLike(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.join(' / ');
+    if (parsed && typeof parsed === 'object') return Object.values(parsed).map(String).join(' / ');
+  } catch {
+    // Use raw value below.
+  }
+  return value;
 }
 
 function visualAssetSvg(asset: { assetType: string; name: string; prompt?: string | null; replacementPath?: string | null }, title: string) {
@@ -684,7 +782,8 @@ router.post('/:id/source-notes', async (req, res, next) => {
 
 router.get('/:id/assets/:assetName', async (req, res, next) => {
   try {
-    res.type('image/svg+xml').sendFile(await exporter.assetPath(Number(req.params.id), req.params.assetName));
+    const filePath = await exporter.assetPath(Number(req.params.id), req.params.assetName);
+    res.type(mimeFromPath(filePath)).sendFile(filePath);
   } catch (error) {
     next(error);
   }
@@ -1074,6 +1173,77 @@ router.post('/:id/chapter-plans', async (req, res, next) => {
   }
 });
 
+router.get('/:id/blocks/stream', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const project = await projectOr404(projectId);
+    
+    // Configurar cabeceras para SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    
+    const sendEvent = (data: any) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    
+    // Aprobar el Índice porque ya pasamos a bloques
+    await upsertGate(projectId, 'chapter-plan', 'APPROVED', 'Aprobado al comenzar la generación de bloques');
+
+    await prisma.manuscriptBlock.deleteMany({ where: { projectId } });
+
+    const totalChapters = project.chapterPlans.length;
+    let currentChapterIndex = 0;
+    
+    for (const plan of project.chapterPlans) {
+      currentChapterIndex++;
+      sendEvent({ currentChapterIndex, chapterProgress: 0, globalProgress: Math.round(((currentChapterIndex - 1) / totalChapters) * 100), message: `Generando capítulo ${currentChapterIndex} de ${totalChapters}: ${plan.title}...` });
+      
+      const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000, (progress) => {
+        sendEvent({ currentChapterIndex, chapterProgress: progress, globalProgress: Math.round(((currentChapterIndex - 1) / totalChapters) * 100), message: `Escribiendo partes del capítulo ${currentChapterIndex}...` });
+      });
+      const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
+      const wordCount = String(content).split(/\s+/).filter(Boolean).length;
+      
+      await prisma.manuscriptBlock.create({
+        data: {
+          projectId,
+          chapterPlanId: plan.id,
+          blockTitle: plan.title,
+          content: String(content),
+          wordCount,
+          status: generated.data.externalAiUsed ? 'DRAFT' : 'NEEDS_REVISION',
+          aiGenerated: true,
+          aiModel: `${generated.data.providers || generated.provider}${generated.data.generationWarnings ? ` | ${generated.data.generationWarnings}` : ''}`.slice(0, 240),
+          order: plan.order,
+        },
+      });
+    }
+    
+    const visualAssets = [
+      { assetType: 'cover', layoutRole: 'cover', pagePlacement: 'front-cover', name: 'Portada frontal', description: 'Portada premium separada para KDP/Gumroad', prompt: project.visualBible?.imagePrompts || 'Portada editorial premium', aiGenerated: true },
+      { assetType: 'chapter-opener', layoutRole: 'chapter-opener', pagePlacement: 'chapter-start', name: 'Apertura de capítulo', description: 'Lámina visual para inicio de capítulo', prompt: 'Chapter opener premium editorial plate', aiGenerated: true },
+      { assetType: 'figure', layoutRole: 'figure-map', pagePlacement: 'method-page', name: 'Mapa conceptual', description: 'Figura interna principal', prompt: 'Figura editorial limpia con mapa de promesa-metodo-resultado', aiGenerated: true },
+      { assetType: 'separator', layoutRole: 'separator', pagePlacement: 'reading-pages', name: 'Separadores editoriales', description: 'Ornamentos y divisores visuales consistentes', prompt: 'Editorial separator ornaments', aiGenerated: true },
+      { assetType: 'icons', layoutRole: 'icons', pagePlacement: 'toc-and-summary', name: 'Iconografía editorial', description: 'Sistema de iconos para índice y secciones', prompt: 'Premium editorial icon strip', aiGenerated: true },
+      { assetType: 'mockup', layoutRole: 'mockup', pagePlacement: 'credits-package', name: 'Mockup comercial', description: 'Imagen de producto Gumroad', prompt: '3D ebook mockup, premium editorial, clean background', aiGenerated: true },
+      { assetType: 'worksheet', layoutRole: 'worksheet', pagePlacement: 'appendix', name: 'Worksheet imprimible', description: 'Hoja de ejercicios bonus', prompt: 'Printable worksheet page, premium editorial layout', aiGenerated: true },
+    ];
+    await prisma.visualAsset.deleteMany({ where: { projectId } });
+    for (const asset of visualAssets) {
+      await prisma.visualAsset.create({ data: { ...asset, projectId, themeKey: 'premium-editorial', qualityStatus: 'PENDING', status: 'GENERATED', approvalStatus: 'PENDING', rights: 'SVG editorial local generado por Cervantes; aprobable o reemplazable antes de publicar.' } });
+    }
+    
+    sendEvent({ done: true });
+    res.end();
+  } catch (error) {
+    console.error('Error en SSE blocks:', error);
+    res.write(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : 'Error desconocido' })}\n\n`);
+    res.end();
+  }
+});
+
 router.post('/:id/blocks', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
@@ -1082,15 +1252,18 @@ router.post('/:id/blocks', async (req, res, next) => {
     if (true) {
       for (const plan of project.chapterPlans) {
         const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000);
+        const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
+        const wordCount = String(content).split(/\s+/).filter(Boolean).length;
         await prisma.manuscriptBlock.create({
           data: {
             projectId,
             chapterPlanId: plan.id,
             blockTitle: plan.title,
-            content: generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '',
-            wordCount: (generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '').split(/\s+/).filter(Boolean).length,
-            status: 'DRAFT',
+            content: String(content),
+            wordCount,
+            status: generated.data.externalAiUsed ? 'DRAFT' : 'NEEDS_REVISION',
             aiGenerated: true,
+            aiModel: `${generated.data.providers || generated.provider}${generated.data.generationWarnings ? ` | ${generated.data.generationWarnings}` : ''}`.slice(0, 240),
             order: plan.order,
           },
         });
@@ -1159,14 +1332,16 @@ router.post('/:id/blocks/:blockId/generate', async (req, res, next) => {
     if (!block) throw new Error('Block not found');
     const plan = block.chapterPlanId ? await prisma.chapterPlan.findUnique({ where: { id: block.chapterPlanId } }) : null;
     const generated = await generateFullChapterTemplate(block.blockTitle, plan?.summary || '', project.name, plan?.estimatedWords || 1000);
+    const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
+    const wordCount = String(content).split(/\s+/).filter(Boolean).length;
     await prisma.manuscriptBlock.update({
       where: { id: block.id },
       data: {
-        content: generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '',
-        wordCount: (generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '').split(/\s+/).filter(Boolean).length,
-        status: 'DRAFT',
+        content: String(content),
+        wordCount,
+        status: generated.data.externalAiUsed ? 'DRAFT' : 'NEEDS_REVISION',
         aiGenerated: true,
-        aiModel: process.env.AI_MODEL || 'template',
+        aiModel: `${generated.data.providers || generated.provider}${generated.data.generationWarnings ? ` | ${generated.data.generationWarnings}` : ''}`.slice(0, 240),
       },
     });
     res.json(await projectOr404(Number(req.params.id)));
@@ -1367,12 +1542,147 @@ router.post('/:id/visual-assets/:assetId', async (req, res, next) => {
   }
 });
 
+router.get('/:id/visual-assets/:assetId/prompt', async (req, res, next) => {
+  try {
+    const project = await projectOr404(Number(req.params.id));
+    const asset = project.visualAssets.find((item) => item.id === Number(req.params.assetId));
+    if (!asset) {
+      res.status(404).json({ error: 'Visual asset not found' });
+      return;
+    }
+    const prompt = buildExternalImagePrompt(project, asset);
+    res.json({
+      prompt,
+      provider: 'puter',
+      fallbackProvider: 'local-svg',
+      model: req.query.model || 'auto',
+      asset: {
+        id: asset.id,
+        role: asset.layoutRole || asset.assetType,
+        type: asset.assetType,
+        name: asset.name,
+        themeKey: asset.themeKey,
+      },
+      recommended: asset.assetType === 'cover'
+        ? { width: 1600, height: 2400, aspectRatio: '2:3' }
+        : { width: 1200, height: 720, aspectRatio: '5:3' },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/visual-assets/:assetId/external-result', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const assetId = Number(req.params.assetId);
+    const asset = await prisma.visualAsset.findUnique({ where: { id: assetId } });
+    if (!asset || asset.projectId !== projectId) {
+      res.status(404).json({ error: 'Visual asset not found' });
+      return;
+    }
+    const decoded = decodeImageDataUrl(req.body.dataUrl);
+    if (decoded.buffer.length < 1024) throw new Error('Generated image is too small');
+    const nextVariant = (asset.variant || 0) + 1;
+    const assetDir = path.join(exportDir, `project-${projectId}-external-ai-assets`);
+    await fs.mkdir(assetDir, { recursive: true });
+    const fileName = `${slugify(asset.layoutRole || asset.assetType || asset.name)}-${assetId}-v${nextVariant}.${extensionFromMime(decoded.mimeType)}`;
+    const filePath = path.join(assetDir, fileName);
+    await fs.writeFile(filePath, decoded.buffer);
+    const previousHistory = parseJsonArray(asset.variantHistory);
+    const nextHistory = [
+      ...previousHistory,
+      {
+        variant: nextVariant,
+        provider: req.body.provider || 'puter',
+        model: req.body.model || 'auto',
+        filePath,
+        createdAt: new Date().toISOString(),
+      },
+    ].slice(-12);
+    await prisma.visualAsset.update({
+      where: { id: assetId },
+      data: {
+        filePath,
+        replacementPath: JSON.stringify({
+          source: 'external-ai',
+          provider: req.body.provider || 'puter',
+          model: req.body.model || 'auto',
+          filePath,
+          variant: nextVariant,
+          generatedAt: new Date().toISOString(),
+        }),
+        prompt: typeof req.body.prompt === 'string' ? req.body.prompt : asset.prompt,
+        externalProvider: String(req.body.provider || 'puter'),
+        externalModel: String(req.body.model || 'auto'),
+        externalPrompt: typeof req.body.prompt === 'string' ? req.body.prompt : null,
+        externalStatus: 'GENERATED',
+        externalError: null,
+        mimeType: decoded.mimeType,
+        aiGenerated: true,
+        status: 'GENERATED',
+        approvalStatus: 'PENDING',
+        qualityStatus: 'PENDING',
+        variant: nextVariant,
+        variantHistory: JSON.stringify(nextHistory),
+        approvedAt: null,
+        rights: req.body.rights || 'Imagen generada por proveedor externo via Puter.js; revisar terminos/licencia antes de publicar externamente.',
+      },
+    });
+    await upsertGate(projectId, 'visual-assets', 'GENERATED', 'Imagen IA externa generada; requiere aprobacion visual.');
+    res.json(await projectOr404(projectId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/visual-assets/:assetId/external-fallback', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const assetId = Number(req.params.assetId);
+    const asset = await prisma.visualAsset.findUnique({ where: { id: assetId } });
+    if (!asset || asset.projectId !== projectId) {
+      res.status(404).json({ error: 'Visual asset not found' });
+      return;
+    }
+    await prisma.visualAsset.update({
+      where: { id: assetId },
+      data: {
+        externalProvider: String(req.body.provider || 'puter'),
+        externalModel: String(req.body.model || 'auto'),
+        externalPrompt: typeof req.body.prompt === 'string' ? req.body.prompt : asset.prompt,
+        externalStatus: 'FALLBACK_USED',
+        externalError: String(req.body.error || 'External provider unavailable'),
+        replacementPath: JSON.stringify({
+          source: 'local-svg-fallback',
+          provider: req.body.provider || 'puter',
+          fallbackAt: new Date().toISOString(),
+        }),
+        status: 'GENERATED',
+        approvalStatus: 'PENDING',
+        qualityStatus: 'PENDING',
+        rights: 'Fallback SVG local de Cervantes usado porque el proveedor IA externo no entrego una imagen usable.',
+      },
+    });
+    await upsertGate(projectId, 'visual-assets', 'GENERATED', 'Proveedor externo no disponible; fallback local activo.');
+    res.json(await projectOr404(projectId));
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get('/:id/visual-assets/:assetId/preview.svg', async (req, res, next) => {
   try {
     const project = await projectOr404(Number(req.params.id));
     const asset = project.visualAssets.find((item) => item.id === Number(req.params.assetId));
     if (!asset) {
       res.status(404).json({ error: 'Visual asset not found' });
+      return;
+    }
+    const replacement = parseReplacementPath(String(asset.replacementPath || ''));
+    if (replacement?.filePath && await fileExists(String(replacement.filePath))) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.type(String(asset.mimeType || mimeFromPath(String(replacement.filePath)))).sendFile(String(replacement.filePath));
       return;
     }
     const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;

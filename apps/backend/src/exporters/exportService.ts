@@ -32,6 +32,20 @@ function slugify(value: string) {
     .replace(/(^-|-$)/g, '');
 }
 
+function assetFileName(role: string, filePath: string) {
+  const ext = path.extname(filePath).toLowerCase() || '.svg';
+  return `${role}${ext}`;
+}
+
+function mediaTypeFor(filePath: string) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.webp') return 'image/webp';
+  if (ext === '.gif') return 'image/gif';
+  return 'image/svg+xml';
+}
+
 function inlineMarkdown(value: string) {
   return escapeHtml(value)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -240,14 +254,14 @@ export class ExportService {
       archive.pipe(stream);
       archive.append('application/epub+zip', { name: 'mimetype', store: true });
       archive.append('<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>', { name: 'META-INF/container.xml' });
-      const manifestAssets = Object.keys(assets)
-        .map((role) => `<item id="${role}" href="assets/${role}.svg" media-type="image/svg+xml"/>`)
+      const manifestAssets = Object.entries(assets)
+        .map(([role, filePath]) => `<item id="${role}" href="assets/${assetFileName(role, filePath)}" media-type="${mediaTypeFor(filePath)}"/>`)
         .join('');
       archive.append(`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">cervantes-${Date.now()}</dc:identifier><dc:title>${escapeHtml(title)}</dc:title><dc:language>es</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>${manifestAssets}</manifest><spine><itemref idref="content"/></spine></package>`, { name: 'OEBPS/package.opf' });
       archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title></head><body><nav epub:type="toc"><h1>Indice</h1><ol><li><a href="content.xhtml">Libro completo</a></li></ol></nav></body></html>`, { name: 'OEBPS/nav.xhtml' });
       archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title><style>body{font-family:serif;line-height:1.55}img{max-width:100%}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px}</style></head><body>${htmlBody}</body></html>`, { name: 'OEBPS/content.xhtml' });
       for (const [role, filePath] of Object.entries(assets)) {
-        archive.file(filePath, { name: `OEBPS/assets/${role}.svg` });
+        archive.file(filePath, { name: `OEBPS/assets/${assetFileName(role, filePath)}` });
       }
       archive.finalize().catch(reject);
     });
@@ -436,9 +450,9 @@ ${JSON.stringify(rendered.professionalReport, null, 2)}
       if (epubBuild.filePath) archive.file(epubBuild.filePath, { name: 'ebook_reflowable.epub' });
       archive.append(markdown, { name: 'manuscript_master_clean.md' });
       archive.append(html, { name: 'preview.html' });
-      if (assets.cover) archive.file(assets.cover, { name: 'cover_front.svg' });
+      if (assets.cover) archive.file(assets.cover, { name: `cover_front${path.extname(assets.cover).toLowerCase() || '.svg'}` });
       for (const [role, filePath] of Object.entries(assets)) {
-        archive.file(filePath, { name: `assets/${role}.svg` });
+        archive.file(filePath, { name: `assets/${assetFileName(role, filePath)}` });
       }
       archive.append(gumroadPage, { name: 'gumroad_product_page.md' });
       archive.append(kdpChecklist, { name: 'kdp_publication_checklist.md' });

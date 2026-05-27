@@ -1,5 +1,5 @@
 export type AIResult<T> = {
-  provider: 'template' | 'openai' | 'gemini' | 'groq';
+  provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'together' | 'fireworks';
   model?: string;
   data: T;
   prompt?: string;
@@ -12,7 +12,10 @@ const systemPrompt =
   'You are Cervantes, a production editorial engine. Return strict JSON only. Preserve all required fields and avoid unsupported claims.';
 
 export class AIService {
+  private static providerCooldowns = new Map<AIProvider, number>();
   private provider = (process.env.AI_PROVIDER || 'auto').toLowerCase();
+  private requestTimeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 10000);
+  private maxAttempts = Number(process.env.AI_MAX_ATTEMPTS || 2);
   private providers: Record<AIProvider, { apiKey?: string; model: string }> = {
     openai: {
       apiKey: process.env.OPENAI_API_KEY,
@@ -26,10 +29,37 @@ export class AIService {
       apiKey: process.env.GROQ_API_KEY,
       model: process.env.GROQ_MODEL || process.env.AI_MODEL || 'llama-3.3-70b-versatile',
     },
+    openrouter: {
+      apiKey: process.env.OPENROUTER_API_KEY,
+      model: process.env.OPENROUTER_MODEL || 'openrouter/free',
+    },
+    mistral: {
+      apiKey: process.env.MISTRAL_API_KEY,
+      model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
+    },
+    cerebras: {
+      apiKey: process.env.CEREBRAS_API_KEY,
+      model: process.env.CEREBRAS_MODEL || 'llama-3.3-70b',
+    },
+    together: {
+      apiKey: process.env.TOGETHER_API_KEY,
+      model: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    },
+    fireworks: {
+      apiKey: process.env.FIREWORKS_API_KEY,
+      model: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+    },
   };
 
-  async generate<T>(templateData: T, options: { engine?: string; prompt?: string } = {}): Promise<AIResult<T>> {
+  async generate<T>(templateData: T, options: { engine?: string; prompt?: string; provider?: AIProvider } = {}): Promise<AIResult<T>> {
     if (!options.prompt) {
+      return {
+        provider: 'template',
+        data: templateData,
+        prompt: options.prompt,
+      };
+    }
+    if ((process.env.NODE_ENV === 'test' || process.env.VITEST) && process.env.AI_TEST_EXTERNAL !== 'true') {
       return {
         provider: 'template',
         data: templateData,
@@ -38,7 +68,14 @@ export class AIService {
     }
 
     const errors: string[] = [];
-    for (const provider of this.providerChain()) {
+    const chain = options.provider ? [options.provider] : this.providerChain();
+    
+    for (const provider of chain) {
+      const cooldownUntil = AIService.providerCooldowns.get(provider) || 0;
+      if (cooldownUntil > Date.now()) {
+        errors.push(`${provider}: temporarily skipped after recent provider failure`);
+        continue;
+      }
       const config = this.providers[provider];
       if (!config.apiKey) {
         errors.push(`${provider}: API key missing`);
@@ -50,7 +87,7 @@ export class AIService {
           ? await this.callGemini<T>(options.prompt, templateData, config.apiKey, config.model)
           : await this.callOpenAICompatible<T>(
               provider,
-              provider === 'openai' ? 'https://api.openai.com/v1/chat/completions' : 'https://api.groq.com/openai/v1/chat/completions',
+              this.openAICompatibleEndpoint(provider),
               options.prompt,
               templateData,
               config.apiKey,
@@ -64,7 +101,9 @@ export class AIService {
           prompt: options.prompt,
         };
       } catch (error) {
-        errors.push(`${provider}: ${error instanceof Error ? error.message : String(error)}`);
+        const message = error instanceof Error ? error.message : String(error);
+        this.cooldownProvider(provider, message);
+        errors.push(`${provider}: ${message}`);
       }
     }
 
@@ -80,10 +119,48 @@ export class AIService {
     if (this.provider === 'template') {
       return [];
     }
-    if (this.provider === 'openai' || this.provider === 'gemini' || this.provider === 'groq') {
+    if (this.isProvider(this.provider)) {
       return [this.provider];
     }
-    return ['openai', 'gemini', 'groq'];
+    const configured = (process.env.AI_PROVIDER_ORDER || '')
+      .split(',')
+      .map(provider => provider.trim().toLowerCase())
+      .filter((provider): provider is AIProvider => this.isProvider(provider));
+    if (configured.length > 0) return configured;
+    return ['groq', 'gemini', 'openrouter', 'cerebras', 'mistral', 'together', 'fireworks', 'openai'];
+  }
+
+  private isProvider(provider: string): provider is AIProvider {
+    return provider === 'openai'
+      || provider === 'gemini'
+      || provider === 'groq'
+      || provider === 'openrouter'
+      || provider === 'mistral'
+      || provider === 'cerebras'
+      || provider === 'together'
+      || provider === 'fireworks';
+  }
+
+  private openAICompatibleEndpoint(provider: AIProvider) {
+    if (provider === 'openai') return 'https://api.openai.com/v1/chat/completions';
+    if (provider === 'openrouter') return 'https://openrouter.ai/api/v1/chat/completions';
+    if (provider === 'mistral') return 'https://api.mistral.ai/v1/chat/completions';
+    if (provider === 'cerebras') return 'https://api.cerebras.ai/v1/chat/completions';
+    if (provider === 'together') return 'https://api.together.xyz/v1/chat/completions';
+    if (provider === 'fireworks') return 'https://api.fireworks.ai/inference/v1/chat/completions';
+    return 'https://api.groq.com/openai/v1/chat/completions';
+  }
+
+  private cooldownProvider(provider: AIProvider, message: string) {
+    const invalidCredentials = /request failed:\s*(400|401|403)|API key|invalid|unauthorized|forbidden/i.test(message);
+    const quotaOrTimeout = /429|rate|quota|timeout/i.test(message);
+    if (!invalidCredentials && !quotaOrTimeout) return;
+    const durationMs = invalidCredentials ? 10 * 60 * 1000 : 60 * 1000;
+    AIService.providerCooldowns.set(provider, Date.now() + durationMs);
+  }
+
+  private supportsJsonResponseFormat(provider: AIProvider) {
+    return provider === 'openai' || provider === 'groq' || provider === 'mistral' || provider === 'cerebras';
   }
 
   private async callOpenAICompatible<T>(
@@ -94,84 +171,149 @@ export class AIService {
     apiKey: string,
     model: string,
   ): Promise<T> {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.3,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt,
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            ...(provider === 'openrouter'
+              ? {
+                  'HTTP-Referer': process.env.APP_PUBLIC_URL || 'http://localhost:5173',
+                  'X-Title': 'Cervantes Local Editorial Engine',
+                }
+              : {}),
           },
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
+          body: JSON.stringify({
+            model,
+            temperature: 0.3,
+            max_tokens: 4000,
+            ...(this.supportsJsonResponseFormat(provider) ? { response_format: { type: 'json_object' } } : {}),
+            messages: [
+              {
+                role: 'system',
+                content: systemPrompt,
+              },
+              { role: 'user', content: prompt },
+            ],
+          }),
+        });
 
-    if (!response.ok) {
-      throw new Error(`${provider} request failed: ${response.status}`);
+        if (!response.ok) {
+          if (response.status === 429 && attempt < this.maxAttempts) {
+            await new Promise(r => setTimeout(r, attempt * 2000));
+            continue;
+          }
+          const body = await response.text().catch(() => '');
+          throw new Error(`${provider} request failed: ${response.status} ${body}`);
+        }
+
+        const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+        const content = json.choices?.[0]?.message?.content;
+        if (!content) throw new Error(`${provider} returned an empty response`);
+
+        return this.parseProviderJson(content, templateData);
+      } catch (err) {
+        lastError = err as Error;
+        if (/request failed:\s*(400|401|403)/i.test(lastError.message)) break;
+      }
     }
-
-    const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const content = json.choices?.[0]?.message?.content;
-    if (!content) throw new Error(`${provider} returned an empty response`);
-
-    return this.parseProviderJson(content, templateData);
+    throw lastError;
   }
 
   private async callGemini<T>(prompt: string, templateData: T, apiKey: string, model: string): Promise<T> {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: {
-        'x-goog-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        system_instruction: {
-          parts: [{ text: systemPrompt }],
-        },
-        contents: [
-          {
-            parts: [{ text: prompt }],
+    let lastError: Error | null = null;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
+      try {
+        const response = await this.fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: 'POST',
+          headers: {
+            'x-goog-api-key': apiKey,
+            'Content-Type': 'application/json',
           },
-        ],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: 'application/json',
-        },
-        safetySettings: [
-          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-        ],
-      }),
-    });
+          body: JSON.stringify({
+            system_instruction: {
+              parts: [{ text: systemPrompt }],
+            },
+            contents: [
+              {
+                parts: [{ text: prompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.3,
+            },
+            safetySettings: [
+              { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+              { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+            ],
+          }),
+        });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`gemini request failed: ${response.status}${body ? ` ${body.slice(0, 300)}` : ''}`);
+        if (!response.ok) {
+          const body = await response.text().catch(() => '');
+          if (response.status === 429 && attempt < this.maxAttempts) {
+            await new Promise(res => setTimeout(res, attempt * 2000));
+            continue;
+          }
+          throw new Error(`gemini request failed: ${response.status}${body ? ` ${body.slice(0, 300)}` : ''}`);
+        }
+
+        const json = (await response.json()) as {
+          candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        };
+        const content = json.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
+        if (!content) throw new Error('gemini returned an empty response');
+
+        return this.parseProviderJson(content, templateData);
+      } catch (err) {
+        lastError = err as Error;
+        if (/gemini request failed:\s*(400|401|403)/i.test(lastError.message)) break;
+        if (attempt < 4) {
+          await new Promise(res => setTimeout(res, attempt * 2000));
+        }
+      }
     }
+    throw lastError;
+  }
 
-    const json = (await response.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const content = json.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
-    if (!content) throw new Error('gemini returned an empty response');
-
-    return this.parseProviderJson(content, templateData);
+  private async fetchWithTimeout(url: string, init: RequestInit) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`AI request timeout after ${this.requestTimeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private parseProviderJson<T>(content: string, templateData: T): T {
     let cleanContent = content.replace(/```(?:json)?\s*/g, '').replace(/```\s*$/g, '').trim();
     if (cleanContent.startsWith('```')) cleanContent = cleanContent.replace(/^```\s*/, '');
-    const parsed = JSON.parse(cleanContent) as unknown;
+    
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(cleanContent);
+    } catch (e) {
+      if (typeof templateData === 'object' && templateData !== null && 'content' in templateData) {
+        let rescued = cleanContent;
+        rescued = rescued.replace(/^\{\s*"content"\s*:\s*"/i, '');
+        rescued = rescued.replace(/"\}$/, '');
+        rescued = rescued.replace(/\\n/g, '\n');
+        rescued = rescued.replace(/\\"/g, '"');
+        return { ...templateData, content: rescued } as unknown as T;
+      }
+      throw e;
+    }
     
     if (Array.isArray(templateData) && !Array.isArray(parsed)) {
       const obj = parsed as Record<string, unknown>;

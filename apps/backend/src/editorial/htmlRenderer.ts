@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { LayoutDocument, LayoutPage } from './layoutEngine';
 import type { EditorialTheme } from './themeEngine';
 
@@ -15,37 +16,38 @@ function inline(value: string) {
     .replace(/\*(.+?)\*/g, '<em>$1</em>');
 }
 
-function assetUrl(role: string, assetBase: string) {
-  return `${assetBase}/${role}.svg`;
+function assetUrl(role: string, assetBase: string, layout: LayoutDocument) {
+  const ext = path.extname(layout.assets[role] || '').toLowerCase() || '.svg';
+  return `${assetBase}/${role}${ext}`;
 }
 
-function renderPage(page: LayoutPage, assetBase: string, index: number) {
+function renderPage(page: LayoutPage, assetBase: string, index: number, layout: LayoutDocument) {
   const pageId = `page-${index + 1}`;
   if (page.type === 'cover') {
-    return `<section id="${pageId}" class="book-cover" data-page-type="cover" aria-label="Portada editorial"><img src="${assetUrl('cover', assetBase)}" alt="Portada editorial premium"></section>`;
+    return `<section id="${pageId}" class="book-cover" data-page-type="cover" aria-label="Portada editorial"><img src="${assetUrl('cover', assetBase, layout)}" alt="Portada editorial premium"></section>`;
   }
   if (page.type === 'title') {
-    return `<section id="${pageId}" class="book-page title-page" data-page-type="title"><p class="kicker">Edicion premium</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><img class="separator-art" src="${assetUrl('separator', assetBase)}" alt=""></section>`;
+    return `<section id="${pageId}" class="book-page title-page" data-page-type="title"><p class="kicker">Edicion premium</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><img class="separator-art" src="${assetUrl('separator', assetBase, layout)}" alt=""></section>`;
   }
   if (page.type === 'toc') {
-    return `<section id="${pageId}" class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase)}" alt="Iconografia editorial"><ol>${page.content.map((item) => `<li>${inline(item)}</li>`).join('')}</ol></section>`;
+    return `<section id="${pageId}" class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase, layout)}" alt="Iconografia editorial"><ol>${page.content.map((item) => `<li>${inline(item)}</li>`).join('')}</ol></section>`;
   }
   if (page.type === 'chapter-opener') {
-    return `<section id="${pageId}" class="book-page chapter-opener" data-page-type="chapter-opener"><img class="chapter-art" src="${assetUrl('chapter-opener', assetBase)}" alt="Apertura de capitulo"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><p class="standfirst">${inline(page.subtitle || '')}</p></section>`;
+    return `<section id="${pageId}" class="book-page chapter-opener" data-page-type="chapter-opener"><img class="chapter-art" src="${assetUrl('chapter-opener', assetBase, layout)}" alt="Apertura de capitulo"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><p class="standfirst">${inline(page.subtitle || '')}</p></section>`;
   }
   if (page.type === 'figure-page') {
-    return `<section id="${pageId}" class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${assetUrl('figure-map', assetBase)}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${assetUrl('figure-map', assetBase, layout)}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'worksheet') {
-    return `<section id="${pageId}" class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase, layout)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'appendix') {
     return `<section id="${pageId}" class="book-page appendix-page" data-page-type="appendix"><p class="kicker">Apendice</p><h1>${inline(page.title)}</h1><div class="check-grid">${page.content.map((item) => `<div>${inline(item)}</div>`).join('')}</div></section>`;
   }
   if (page.type === 'credits') {
-    return `<section id="${pageId}" class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+    return `<section id="${pageId}" class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase, layout)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
-  return `<section id="${pageId}" class="book-page reading-page variant-${page.variant || 0}" data-page-type="reading-page"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><img class="separator-inline" src="${assetUrl('separator', assetBase)}" alt=""><aside class="margin-note"><strong>Guia de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
+  return `<section id="${pageId}" class="book-page reading-page variant-${page.variant || 0}" data-page-type="reading-page"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><img class="separator-inline" src="${assetUrl('separator', assetBase, layout)}" alt=""><aside class="margin-note"><strong>Guia de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
 }
 
 function css(theme: EditorialTheme) {
@@ -91,7 +93,7 @@ figure{margin:8mm 0;text-align:center;break-inside:avoid}figure img{max-width:10
 
 export class EditorialHtmlRenderer {
   render(layout: LayoutDocument, assetBase = 'assets') {
-    const pages = layout.pages.map((page, index) => renderPage(page, assetBase, index)).join('\n');
+    const pages = layout.pages.map((page, index) => renderPage(page, assetBase, index, layout)).join('\n');
     return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(layout.title)}</title><style>${css(layout.theme)}</style></head><body class="professional-layout" data-professional="true" data-theme="${layout.theme.key}" data-variant="${layout.theme.variant}">${pages}</body></html>`;
   }
 }

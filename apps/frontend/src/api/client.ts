@@ -93,6 +93,22 @@ export const api = {
       headers: jsonHeaders,
       body: JSON.stringify({}),
     }),
+  visualAssetPrompt: (projectId: number, assetId: number) =>
+    request<{ prompt: string; provider: string; model: string; recommended: Record<string, unknown>; asset: Record<string, unknown> }>(
+      `/api/projects/${projectId}/visual-assets/${assetId}/prompt`,
+    ),
+  saveExternalAsset: (projectId: number, assetId: number, data: Record<string, unknown>) =>
+    request<Project>(`/api/projects/${projectId}/visual-assets/${assetId}/external-result`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(data),
+    }),
+  externalAssetFallback: (projectId: number, assetId: number, data: Record<string, unknown>) =>
+    request<Project>(`/api/projects/${projectId}/visual-assets/${assetId}/external-fallback`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify(data),
+    }),
   productionPackage: (id: number, data: Record<string, unknown> = {}) =>
     request<Project>(`/api/projects/${id}/production-package`, {
       method: 'POST',

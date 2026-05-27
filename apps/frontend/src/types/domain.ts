@@ -62,6 +62,7 @@ export type ManuscriptBlock = {
   content?: string | null;
   status: string;
   wordCount?: number | null;
+  aiModel?: string | null;
   order: number;
 };
 
@@ -99,4 +100,10 @@ export type VisualAsset = {
   pagePlacement?: string | null;
   variant?: number | null;
   qualityStatus?: string | null;
+  externalProvider?: string | null;
+  externalModel?: string | null;
+  externalPrompt?: string | null;
+  externalStatus?: string | null;
+  externalError?: string | null;
+  mimeType?: string | null;
 };

@@ -340,6 +340,12 @@ model VisualAsset {
   variantHistory String?
   pageId      String?
   pageApprovalStatus String?
+  externalProvider String?
+  externalModel String?
+  externalPrompt String?
+  externalStatus String?
+  externalError String?
+  mimeType    String?
   aiGenerated Boolean  @default(false)
   rights      String?
   approvedAt  DateTime?
