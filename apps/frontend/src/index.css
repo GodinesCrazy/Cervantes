@@ -1375,3 +1375,168 @@ textarea {
     font-size: 32px;
   }
 }
+
+/* Visual Grid Redesign */
+.visualGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  margin-top: 16px;
+}
+
+.visualCard {
+  background: #171a1d;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.05);
+  display: flex;
+  flex-direction: column;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.visualCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+  border-color: rgba(201, 162, 39, 0.3);
+}
+
+.visualCard.approved {
+  border-color: rgba(58, 125, 124, 0.4);
+}
+
+.visualCardImage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background: #111315;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.visualCardImage .assetPreview {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.visualCardImage img,
+.visualCardImage svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 0.4s ease;
+  display: block;
+}
+
+.visualCard:hover .visualCardImage img,
+.visualCard:hover .visualCardImage svg {
+  transform: scale(1.03);
+}
+
+.visualCardOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 16px 16px;
+  background: linear-gradient(to top, rgba(17,19,21,0.95), transparent);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.visualCard:hover .visualCardOverlay {
+  opacity: 1;
+}
+
+.iconButton {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  backdrop-filter: blur(4px);
+  transition: background 0.2s, transform 0.1s;
+}
+
+.iconButton:hover:not(:disabled) {
+  background: rgba(255,255,255,0.25);
+  transform: scale(1.05);
+}
+
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.iconButton.approveBtn {
+  background: rgba(201, 162, 39, 0.9);
+  width: auto;
+  padding: 0 16px;
+  font-weight: 500;
+  color: #111315;
+}
+
+.iconButton.approveBtn:hover:not(:disabled) {
+  background: #d9bf67;
+}
+
+.visualCardMeta {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+  flex-grow: 1;
+}
+
+.visualCardMeta strong {
+  font-size: 16px;
+  color: #f5f2ea;
+  margin-bottom: 2px;
+}
+
+.visualCardMeta small {
+  font-size: 13px;
+  color: #aeb5b8;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.visualCardStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.statusIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+}
+
+.statusIndicator.external { background: #c9a227; }
+.statusIndicator.fallback { background: #d95d39; }
+.statusIndicator.local { background: #3a7d7c; }
+
+.statusText {
+  font-size: 12px;
+  color: #7a8285;
+}
+
+.actions.endActions {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  justify-content: flex-end;
+}

@@ -446,37 +446,228 @@ function cleanPromptLike(value: string) {
   return value;
 }
 
-function visualAssetSvg(asset: { assetType: string; name: string; prompt?: string | null; replacementPath?: string | null }, title: string) {
+function getLocalSvgFallback(asset: { assetType: string; name: string; prompt?: string | null; replacementPath?: string | null; layoutRole?: string | null }, title: string) {
   const variant = visualVariant(asset) % 3;
   const palette = [
-    { ink: '#111315', paper: '#F8F3EA', teal: '#3A7D7C', gold: '#D9BF67', coral: '#D95D39', mist: '#E8EFEA' },
-    { ink: '#151716', paper: '#F7F1E6', teal: '#245F63', gold: '#C9A227', coral: '#B9533F', mist: '#EEF3EF' },
-    { ink: '#101214', paper: '#FAF6EE', teal: '#4A837F', gold: '#E0BC57', coral: '#CC654C', mist: '#E4ECE8' },
+    { ink: '#111315', paper: '#Fdfcf9', teal: '#1f4e5b', gold: '#c9a227', coral: '#d95d39', mist: '#e4ebed' },
+    { ink: '#151716', paper: '#f4f0e8', teal: '#2a4d46', gold: '#bfa15f', coral: '#a34838', mist: '#e0e5e3' },
+    { ink: '#101214', paper: '#f8f9fa', teal: '#3b5998', gold: '#f4c430', coral: '#e05a47', mist: '#d9e0e8' },
   ][variant];
+  const role = asset.layoutRole || asset.assetType;
+  const displayTitle = cleanPromptLike(asset.prompt || asset.name || title)
+    .replace(/[{}[\]"]/g, '')
+    .split(/[.;|/]/)[0]
+    .trim()
+    .slice(0, 96) || asset.name;
+  const chapterLabel = title.length > 58 ? `${title.slice(0, 55)}...` : title;
+
+  const commonDefs = `
+    <defs>
+      <filter id="noise">
+        <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+        <feColorMatrix type="saturate" values="0"/>
+        <feComponentTransfer><feFuncA type="linear" slope="0.08"/></feComponentTransfer>
+      </filter>
+      <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000" flood-opacity="0.35"/>
+      </filter>
+      <linearGradient id="premiumBg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${palette.ink}"/>
+        <stop offset="100%" stop-color="${palette.teal}"/>
+      </linearGradient>
+      <linearGradient id="goldGradient" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${palette.gold}"/>
+        <stop offset="100%" stop-color="#fff"/>
+      </linearGradient>
+      <radialGradient id="plateGlow" cx="50%" cy="38%" r="58%">
+        <stop offset="0%" stop-color="${palette.gold}" stop-opacity="0.35"/>
+        <stop offset="60%" stop-color="${palette.teal}" stop-opacity="0.08"/>
+        <stop offset="100%" stop-color="${palette.ink}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+  `;
 
   if (asset.assetType === 'cover') {
-    const motif = variant === 0
-      ? `<circle cx="800" cy="790" r="210" fill="${palette.paper}" opacity="0.94"/><circle cx="800" cy="790" r="98" fill="none" stroke="${palette.teal}" stroke-width="24"/><path d="M760 835 C800 880 840 880 880 835" fill="none" stroke="${palette.coral}" stroke-width="22" stroke-linecap="round"/>`
-      : variant === 1
-        ? `<rect x="520" y="530" width="560" height="560" fill="${palette.paper}" opacity="0.92"/><path d="M610 790 C700 650 900 650 990 790 C930 940 670 940 610 790Z" fill="none" stroke="${palette.teal}" stroke-width="28"/><circle cx="720" cy="785" r="28" fill="${palette.ink}"/><circle cx="880" cy="785" r="28" fill="${palette.ink}"/>`
-        : `<path d="M800 500 C1030 680 1055 980 800 1230 C545 980 570 680 800 500Z" fill="${palette.paper}" opacity="0.93"/><path d="M650 825 C730 760 870 760 950 825" fill="none" stroke="${palette.teal}" stroke-width="26"/><path d="M710 950 H890" stroke="${palette.coral}" stroke-width="24" stroke-linecap="round"/>`;
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2400"><defs><linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${palette.ink}"/><stop offset="1" stop-color="${palette.teal}"/></linearGradient></defs><rect width="1600" height="2400" fill="url(#bg)"/><rect x="116" y="116" width="1368" height="2168" fill="none" stroke="${palette.gold}" stroke-width="8"/><rect x="178" y="178" width="1244" height="2044" fill="none" stroke="${palette.paper}" stroke-opacity="0.16" stroke-width="2"/><g>${motif}</g><text x="800" y="1370" fill="${palette.gold}" font-family="Arial" font-size="34" text-anchor="middle" letter-spacing="4">GUIA PREMIUM PRACTICA Y VISUAL</text>${svgTitleLines(title, 800, 1515)}<text x="800" y="2115" fill="${palette.paper}" fill-opacity="0.78" font-family="Arial" font-size="34" text-anchor="middle">CERVANTES EDITORIAL SYSTEM</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2400">
+      ${commonDefs}
+      <rect width="1600" height="2400" fill="url(#premiumBg)"/>
+      <rect width="1600" height="2400" fill="url(#noise)" style="mix-blend-mode: overlay;" />
+      <rect x="86" y="86" width="1428" height="2228" fill="none" stroke="${palette.gold}" stroke-width="8" opacity="0.85"/>
+      <rect x="132" y="132" width="1336" height="2136" fill="none" stroke="${palette.paper}" stroke-width="2" opacity="0.22"/>
+      <g opacity="0.75">
+        <path d="M160 210h210M1230 210h210M160 2190h210M1230 2190h210" stroke="${palette.gold}" stroke-width="4"/>
+        <path d="M210 160v210M1390 160v210M210 2030v210M1390 2030v210" stroke="${palette.gold}" stroke-width="4"/>
+        <circle cx="210" cy="210" r="34" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+        <circle cx="1390" cy="210" r="34" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+        <circle cx="210" cy="2190" r="34" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+        <circle cx="1390" cy="2190" r="34" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+      </g>
+      <rect x="250" y="380" width="1100" height="760" fill="#000" opacity="0.18" filter="url(#shadow)"/>
+      <rect x="288" y="418" width="1024" height="684" fill="${palette.ink}" opacity="0.62" stroke="${palette.gold}" stroke-width="3"/>
+      <circle cx="800" cy="720" r="245" fill="url(#plateGlow)"/>
+      <circle cx="800" cy="720" r="238" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+      <circle cx="800" cy="720" r="154" fill="none" stroke="${palette.paper}" stroke-width="2" opacity="0.28"/>
+      <path d="M690 830 L800 560 L910 830 Z" fill="none" stroke="url(#goldGradient)" stroke-width="22" stroke-linejoin="round"/>
+      <path d="M705 875 C760 928 842 928 895 875" fill="none" stroke="${palette.coral}" stroke-width="14" stroke-linecap="round"/>
+      ${Array.from({ length: 18 }).map((_, i) => `<circle cx="${390 + ((i * 79) % 820)}" cy="${470 + ((i * 137) % 540)}" r="${i % 3 === 0 ? 4 : 2}" fill="${palette.gold}" opacity="${0.35 + (i % 4) * 0.12}"/>`).join('')}
+      <text x="800" y="1275" fill="${palette.gold}" font-family="Georgia, serif" font-size="38" text-anchor="middle" letter-spacing="9">GUIA PREMIUM</text>
+      <line x1="430" y1="1330" x2="1170" y2="1330" stroke="${palette.gold}" stroke-width="3"/>
+      ${svgTitleLines(title, 800, 1488, 20, 82)}
+      <text x="800" y="2050" fill="${palette.paper}" opacity="0.72" font-family="Arial, sans-serif" font-size="30" text-anchor="middle" letter-spacing="4">CERVANTES EDITORIAL SYSTEM</text>
+      <text x="800" y="2124" fill="${palette.gold}" opacity="0.75" font-family="Georgia, serif" font-size="24" text-anchor="middle">edicion visual local</text>
+    </svg>`;
   }
 
-  if (asset.assetType === 'figure') {
-    const layout = variant === 0
-      ? `<circle cx="600" cy="360" r="114" fill="${palette.ink}"/><text x="600" y="352" font-family="Georgia" font-size="31" text-anchor="middle" fill="${palette.paper}">Decisión</text><text x="600" y="390" font-family="Arial" font-size="18" text-anchor="middle" fill="${palette.gold}">con criterio</text><path d="M470 340 C365 302 300 245 246 170" fill="none" stroke="${palette.teal}" stroke-width="6"/><path d="M730 340 C835 302 900 245 954 170" fill="none" stroke="${palette.coral}" stroke-width="6"/><path d="M470 390 C365 428 300 485 246 560" fill="none" stroke="${palette.gold}" stroke-width="6"/><path d="M730 390 C835 428 900 485 954 560" fill="none" stroke="#526064" stroke-width="6"/>`
-      : variant === 1
-        ? `<path d="M180 360 H1020" stroke="${palette.gold}" stroke-width="8"/><circle cx="250" cy="360" r="62" fill="${palette.teal}"/><circle cx="500" cy="360" r="62" fill="${palette.ink}"/><circle cx="750" cy="360" r="62" fill="${palette.coral}"/><circle cx="1000" cy="360" r="62" fill="#526064"/>`
-        : `<path d="M600 150 L1000 360 L600 570 L200 360 Z" fill="none" stroke="${palette.gold}" stroke-width="8"/><circle cx="600" cy="150" r="58" fill="${palette.teal}"/><circle cx="1000" cy="360" r="58" fill="${palette.coral}"/><circle cx="600" cy="570" r="58" fill="${palette.gold}"/><circle cx="200" cy="360" r="58" fill="#526064"/><circle cx="600" cy="360" r="78" fill="${palette.ink}"/>`;
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720"><rect width="1200" height="720" fill="${palette.paper}"/><text x="96" y="88" font-family="Georgia" font-size="44" fill="${palette.ink}">Mapa práctico de cuidado</text><text x="98" y="126" font-family="Arial" font-size="18" fill="#526064">Del síntoma observable a una acción segura y revisable</text><g>${layout}</g><g font-family="Arial" font-size="20" text-anchor="middle"><rect x="122" y="118" width="248" height="96" fill="${palette.teal}"/><text x="246" y="158" fill="#fff">Observa</text><text x="246" y="188" font-size="15" fill="${palette.mist}">señales reales</text><rect x="830" y="118" width="248" height="96" fill="${palette.coral}"/><text x="954" y="158" fill="#fff">Prioriza</text><text x="954" y="188" font-size="15" fill="#FFE8DF">salud y seguridad</text><rect x="122" y="506" width="248" height="96" fill="${palette.gold}"/><text x="246" y="546" fill="${palette.ink}">Aplica</text><text x="246" y="576" font-size="15" fill="#3A3320">rutina breve</text><rect x="830" y="506" width="248" height="96" fill="#526064"/><text x="954" y="546" fill="#fff">Registra</text><text x="954" y="576" font-size="15" fill="${palette.mist}">ajuste semanal</text></g><rect x="90" y="656" width="1020" height="2" fill="${palette.gold}"/><text x="96" y="688" font-family="Arial" font-size="16" fill="#526064">Figura editorial editable para explicar el método dentro del ebook.</text></svg>`;
+  if (role === 'chapter-opener' || asset.assetType === 'chapter-opener') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+      ${commonDefs}
+      <rect width="1200" height="800" fill="url(#premiumBg)"/>
+      <rect width="1200" height="800" fill="url(#noise)" style="mix-blend-mode: overlay;"/>
+      <rect x="62" y="62" width="1076" height="676" fill="none" stroke="${palette.gold}" stroke-width="5"/>
+      <rect x="104" y="104" width="992" height="592" fill="${palette.ink}" opacity="0.32" stroke="${palette.paper}" stroke-opacity="0.16"/>
+      <g transform="translate(122 134)">
+        <text x="0" y="34" fill="${palette.gold}" font-family="Georgia, serif" font-size="24" letter-spacing="5">APERTURA DE CAPITULO</text>
+        <line x1="0" y1="62" x2="390" y2="62" stroke="${palette.gold}" stroke-width="3"/>
+        <text x="0" y="178" fill="${palette.paper}" font-family="Georgia, serif" font-size="64" font-weight="700">${asset.name}</text>
+        <text x="0" y="248" fill="${palette.mist}" font-family="Arial, sans-serif" font-size="28">${chapterLabel}</text>
+        <rect x="0" y="328" width="470" height="150" fill="${palette.paper}" opacity="0.08" stroke="${palette.gold}" stroke-opacity="0.55"/>
+        <text x="34" y="384" fill="${palette.gold}" font-family="Georgia, serif" font-size="28">Promesa de lectura</text>
+        <text x="34" y="428" fill="${palette.paper}" font-family="Arial, sans-serif" font-size="22">Una entrada visual, clara y editorial al tema.</text>
+      </g>
+      <g transform="translate(770 168)">
+        <circle cx="150" cy="190" r="154" fill="none" stroke="${palette.gold}" stroke-width="3"/>
+        <circle cx="150" cy="190" r="98" fill="${palette.paper}" opacity="0.08"/>
+        <path d="M92 256 C148 116 242 88 308 56 C272 142 246 246 92 256Z" fill="${palette.gold}" opacity="0.82"/>
+        <path d="M-26 414 H326" stroke="${palette.gold}" stroke-width="3"/>
+        <text x="150" y="470" fill="${palette.paper}" font-family="Georgia, serif" font-size="24" text-anchor="middle">ritmo - metodo - practica</text>
+      </g>
+    </svg>`;
+  }
+
+  if (asset.assetType === 'figure' || role.includes('figure')) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+      ${commonDefs}
+      <rect width="1200" height="800" fill="${palette.paper}"/>
+      <rect width="1200" height="800" fill="url(#noise)" style="mix-blend-mode: multiply;"/>
+      <rect x="64" y="54" width="1072" height="692" fill="none" stroke="${palette.gold}" stroke-width="5"/>
+      <text x="110" y="118" fill="${palette.ink}" font-family="Georgia, serif" font-size="46" font-weight="700">Mapa editorial del metodo</text>
+      <text x="112" y="158" fill="#526064" font-family="Arial, sans-serif" font-size="20">${displayTitle}</text>
+      <g transform="translate(600 408)">
+        <circle cx="0" cy="0" r="118" fill="${palette.ink}" filter="url(#shadow)"/>
+        <circle cx="0" cy="0" r="92" fill="none" stroke="${palette.gold}" stroke-width="4"/>
+        <text x="0" y="-12" fill="${palette.paper}" font-family="Georgia, serif" font-size="32" text-anchor="middle">Metodo</text>
+        <text x="0" y="28" fill="${palette.gold}" font-family="Arial, sans-serif" font-size="18" text-anchor="middle">decision aplicable</text>
+        <path d="M-125 -42 C-230 -78 -304 -130 -384 -206" fill="none" stroke="${palette.teal}" stroke-width="7"/>
+        <path d="M125 -42 C230 -78 304 -130 384 -206" fill="none" stroke="${palette.coral}" stroke-width="7"/>
+        <path d="M-124 54 C-232 94 -304 142 -384 210" fill="none" stroke="${palette.gold}" stroke-width="7"/>
+        <path d="M124 54 C232 94 304 142 384 210" fill="none" stroke="#526064" stroke-width="7"/>
+      </g>
+      ${[
+        ['Observa', 'senales concretas', 116, 188, palette.teal, '#fff'],
+        ['Interpreta', 'elige criterio', 828, 188, palette.coral, '#fff'],
+        ['Aplica', 'paso simple', 116, 568, palette.gold, palette.ink],
+        ['Registra', 'mejora semanal', 828, 568, '#526064', '#fff'],
+      ].map(([head, sub, x, y, fill, text]) => `<g><rect x="${x}" y="${y}" width="256" height="118" fill="${fill}" filter="url(#shadow)"/><text x="${Number(x) + 128}" y="${Number(y) + 48}" fill="${text}" font-family="Georgia, serif" font-size="30" text-anchor="middle">${head}</text><text x="${Number(x) + 128}" y="${Number(y) + 82}" fill="${text}" opacity="0.78" font-family="Arial, sans-serif" font-size="17" text-anchor="middle">${sub}</text></g>`).join('')}
+      <line x1="108" y1="704" x2="1092" y2="704" stroke="${palette.gold}" stroke-width="3"/>
+      <text x="110" y="732" fill="#526064" font-family="Arial, sans-serif" font-size="17">Figura interna editable para explicar el sistema de la obra con coherencia visual.</text>
+    </svg>`;
+  }
+
+  if (asset.assetType === 'separator' || role.includes('separator')) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 420">
+      ${commonDefs}
+      <rect width="1200" height="420" fill="${palette.paper}"/>
+      <rect width="1200" height="420" fill="url(#noise)" style="mix-blend-mode: multiply;"/>
+      <line x1="92" y1="210" x2="1108" y2="210" stroke="${palette.gold}" stroke-width="5"/>
+      <line x1="190" y1="180" x2="1010" y2="180" stroke="${palette.ink}" stroke-width="1" opacity="0.35"/>
+      <line x1="190" y1="240" x2="1010" y2="240" stroke="${palette.ink}" stroke-width="1" opacity="0.35"/>
+      <g transform="translate(600 210)">
+        <circle cx="0" cy="0" r="74" fill="${palette.ink}" filter="url(#shadow)"/>
+        <circle cx="0" cy="0" r="48" fill="none" stroke="${palette.gold}" stroke-width="4"/>
+        <path d="M-30 26 L0 -42 L30 26Z" fill="${palette.gold}"/>
+        <path d="M-205 0 C-140 -80 -90 -80 -38 0 C-90 80 -140 80 -205 0Z" fill="none" stroke="${palette.teal}" stroke-width="4"/>
+        <path d="M205 0 C140 -80 90 -80 38 0 C90 80 140 80 205 0Z" fill="none" stroke="${palette.coral}" stroke-width="4"/>
+      </g>
+      <text x="600" y="350" fill="${palette.ink}" font-family="Georgia, serif" font-size="26" text-anchor="middle">Separador editorial de lectura</text>
+    </svg>`;
+  }
+
+  if (asset.assetType === 'icons' || role.includes('icon')) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620">
+      ${commonDefs}
+      <rect width="1200" height="620" fill="${palette.paper}"/>
+      <rect width="1200" height="620" fill="url(#noise)" style="mix-blend-mode: multiply;"/>
+      <text x="94" y="94" fill="${palette.ink}" font-family="Georgia, serif" font-size="42" font-weight="700">Iconografia editorial</text>
+      <text x="96" y="132" fill="#526064" font-family="Arial, sans-serif" font-size="20">Sistema visual para resumenes, pasos y alertas dentro del ebook.</text>
+      ${[
+        ['Ruta', 'M', palette.teal],
+        ['Clave', 'K', palette.gold],
+        ['Practica', 'P', palette.coral],
+        ['Cierre', 'C', '#526064'],
+      ].map(([label, mark, fill], i) => {
+        const x = 150 + i * 250;
+        return `<g transform="translate(${x} 230)" filter="url(#shadow)">
+          <rect x="-72" y="-72" width="144" height="144" fill="${fill}" rx="18"/>
+          <circle cx="0" cy="0" r="46" fill="none" stroke="${palette.paper}" stroke-width="5" opacity="0.82"/>
+          <text x="0" y="16" fill="${palette.paper}" font-family="Georgia, serif" font-size="46" text-anchor="middle">${mark}</text>
+          <text x="0" y="122" fill="${palette.ink}" font-family="Georgia, serif" font-size="27" text-anchor="middle">${label}</text>
+        </g>`;
+      }).join('')}
+      <rect x="86" y="508" width="1028" height="4" fill="${palette.gold}"/>
+    </svg>`;
+  }
+
+  if (asset.assetType === 'worksheet' || role.includes('worksheet')) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1300">
+      ${commonDefs}
+      <rect width="1000" height="1300" fill="${palette.paper}"/>
+      <rect width="1000" height="1300" fill="url(#noise)" style="mix-blend-mode: multiply;"/>
+      <rect x="88" y="78" width="824" height="1144" fill="#fffdf8" stroke="${palette.gold}" stroke-width="5" filter="url(#shadow)"/>
+      <text x="150" y="170" fill="${palette.ink}" font-family="Georgia, serif" font-size="54" font-weight="700">Worksheet editorial</text>
+      <text x="154" y="216" fill="#526064" font-family="Arial, sans-serif" font-size="22">${displayTitle}</text>
+      <rect x="150" y="258" width="700" height="2" fill="${palette.gold}"/>
+      ${[0, 1, 2, 3, 4].map((row) => `<g transform="translate(150 ${330 + row * 120})">
+        <rect width="42" height="42" fill="none" stroke="${palette.teal}" stroke-width="6"/>
+        <text x="66" y="30" fill="${palette.ink}" font-family="Georgia, serif" font-size="27">Accion ${row + 1}</text>
+        <line x1="66" y1="58" x2="700" y2="58" stroke="#526064" stroke-width="2" opacity="0.5"/>
+        <line x1="66" y1="92" x2="${620 - row * 24}" y2="92" stroke="${row === 2 ? palette.coral : palette.mist}" stroke-width="9"/>
+      </g>`).join('')}
+      <rect x="150" y="1018" width="700" height="112" fill="${palette.mist}" opacity="0.65"/>
+      <text x="184" y="1070" fill="${palette.ink}" font-family="Georgia, serif" font-size="28">Nota de seguimiento</text>
+      <line x1="184" y1="1104" x2="810" y2="1104" stroke="${palette.ink}" stroke-width="2" opacity="0.2"/>
+      <text x="500" y="1180" fill="${palette.gold}" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" letter-spacing="3">CERVANTES WORKBOOK</text>
+    </svg>`;
   }
 
   if (asset.assetType === 'mockup') {
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460"><rect width="720" height="460" fill="${palette.paper}"/><ellipse cx="360" cy="382" rx="214" ry="30" fill="${palette.ink}" opacity="0.14"/><path d="M252 84 L430 52 L430 348 L252 384 Z" fill="${palette.teal}"/><path d="M430 52 L492 96 L492 368 L430 348 Z" fill="${palette.gold}"/><path d="M286 128 L392 108" stroke="${palette.paper}" stroke-width="8"/><path d="M286 164 L382 146" stroke="${palette.paper}" stroke-width="4" opacity="0.7"/><circle cx="342" cy="246" r="48" fill="none" stroke="${palette.coral}" stroke-width="12"/><text x="360" y="426" text-anchor="middle" font-family="Georgia" font-size="28" fill="${palette.ink}">Mockup comercial premium</text></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+      ${commonDefs}
+      <rect width="1200" height="800" fill="${palette.paper}"/>
+      <rect width="1200" height="800" fill="url(#noise)" style="mix-blend-mode: multiply;" />
+      <ellipse cx="600" cy="650" rx="350" ry="40" fill="#000" opacity="0.15" filter="url(#shadow)"/>
+      <g filter="url(#shadow)" transform="translate(420, 150)">
+        <path d="M0 60 L240 0 L240 450 L0 510 Z" fill="${palette.teal}"/>
+        <path d="M240 0 L320 40 L320 490 L240 450 Z" fill="${palette.gold}"/>
+        <path d="M0 60 L80 100 L320 40 L240 0 Z" fill="${palette.mist}" opacity="0.9"/>
+        <line x1="20" y1="120" x2="220" y2="70" stroke="${palette.gold}" stroke-width="4"/>
+        <circle cx="120" cy="250" r="40" fill="none" stroke="${palette.paper}" stroke-width="4"/>
+      </g>
+      <text x="600" y="730" fill="${palette.ink}" font-family="Georgia, serif" font-size="36" text-anchor="middle" letter-spacing="4">MOCKUP COMERCIAL 3D</text>
+    </svg>`;
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 460"><rect width="720" height="460" fill="${palette.paper}"/><rect x="148" y="54" width="424" height="340" fill="#fff" stroke="${palette.gold}" stroke-width="6"/><text x="194" y="124" font-family="Georgia" font-size="34" fill="${palette.ink}">Checklist editorial</text>${[0, 1, 2, 3, 4].map((row) => `<g transform="translate(194 ${172 + row * 42})"><rect width="24" height="24" fill="none" stroke="${palette.teal}" stroke-width="5"/><line x1="46" y1="13" x2="${330 - row * 22}" y2="13" stroke="${row === 2 ? palette.coral : '#526064'}" stroke-width="8"/></g>`).join('')}<rect x="194" y="354" width="150" height="12" fill="${palette.gold}"/></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800">
+    ${commonDefs}
+    <rect width="1200" height="800" fill="${palette.paper}"/>
+    <rect width="1200" height="800" fill="url(#noise)" style="mix-blend-mode: multiply;" />
+    <g transform="translate(150, 100)">
+      <rect width="900" height="600" fill="#fff" filter="url(#shadow)" rx="12"/>
+      <text x="80" y="100" fill="${palette.ink}" font-family="Georgia, serif" font-size="48" font-weight="bold">${asset.name}</text>
+      <rect x="80" y="140" width="120" height="6" fill="${palette.gold}"/>
+      <circle cx="800" cy="100" r="40" fill="${palette.teal}" opacity="0.1"/>
+      ${[0,1,2].map(i => `<rect x="80" y="${250 + i*100}" width="740" height="2" fill="${palette.mist}"/><rect x="80" y="${220 + i*100}" width="300" height="14" fill="${palette.teal}" opacity="0.2"/>`).join('')}
+    </g>
+  </svg>`;
 }
 
 router.get('/', async (_req, res, next) => {
@@ -1687,7 +1878,7 @@ router.get('/:id/visual-assets/:assetId/preview.svg', async (req, res, next) => 
     }
     const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
     res.setHeader('Cache-Control', 'no-store');
-    res.type('image/svg+xml').send(visualAssetSvg(asset, title));
+    res.type('image/svg+xml').send(getLocalSvgFallback(asset, title));
   } catch (error) {
     next(error);
   }

@@ -339,8 +339,22 @@ function RecoveryResult({
         </div>
         <button className="button primary" onClick={onRun} disabled={busy}>
           {busy && <span className="spinner" />}
-          Ensamblar manuscrito
+          {busy ? 'Ensamblando documento maestro...' : 'Ensamblar manuscrito'}
         </button>
+        {busy && (
+          <div style={{ width: '100%', marginTop: '1rem' }}>
+            <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+              <div style={{ height: '100%', background: 'var(--primary, #eab308)', width: '100%', animation: 'progressIndeterminate 1.5s infinite linear', transformOrigin: '0% 50%' }} />
+            </div>
+            <style>{`
+              @keyframes progressIndeterminate {
+                0% { transform: translateX(-100%) scaleX(0.2); }
+                50% { transform: translateX(0) scaleX(0.5); }
+                100% { transform: translateX(100%) scaleX(0.2); }
+              }
+            `}</style>
+          </div>
+        )}
       </section>
     );
   }
@@ -394,7 +408,7 @@ function RecoveryResult({
       <div className="actions">
         <button className="button" onClick={onRun} disabled={busy}>
           {busy && <span className="spinner" />}
-          Reensamblar
+          {busy ? 'Reensamblando...' : 'Reensamblar'}
         </button>
         {gate?.status !== 'APPROVED' && (
           <button className="button primary" onClick={onApprove} disabled={busy || !ready}>
@@ -402,11 +416,35 @@ function RecoveryResult({
           </button>
         )}
         {gate?.status === 'APPROVED' && (
-          <button className="button primary" onClick={() => navigate(`/projects/${project.id}/visual-design`)}>
+          <button className="button primary pulse-animation" onClick={() => navigate(`/projects/${project.id}/visual-design`)}>
             Continuar a diseño visual
           </button>
         )}
       </div>
+      {busy && (
+        <div style={{ width: '100%', marginTop: '1rem' }}>
+          <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', background: 'var(--primary, #eab308)', width: '100%', animation: 'progressIndeterminate 1.5s infinite linear', transformOrigin: '0% 50%' }} />
+          </div>
+          <style>{`
+            @keyframes progressIndeterminate {
+              0% { transform: translateX(-100%) scaleX(0.2); }
+              50% { transform: translateX(0) scaleX(0.5); }
+              100% { transform: translateX(100%) scaleX(0.2); }
+            }
+          `}</style>
+        </div>
+      )}
+      <style>{`
+        .pulse-animation {
+          animation: pulseButton 2s infinite;
+        }
+        @keyframes pulseButton {
+          0% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.4); }
+          70% { box-shadow: 0 0 0 10px rgba(234, 179, 8, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0); }
+        }
+      `}</style>
     </section>
   );
 }
@@ -844,52 +882,35 @@ export function VisualDesignPage() {
             </button>
           </div>
         )}
-        <div className="list">
+        <div className="visualGrid">
           {(project.visualAssets || []).length === 0 && (
             <p className="muted">Aún no hay assets. Genera la biblia visual y los bloques para crear prompts, placeholders y aprobaciones.</p>
           )}
           {(project.visualAssets || []).map((asset) => (
-            <article className="assetCard" key={asset.id}>
-              <button className="assetPreviewButton" onClick={() => setExpandedAsset(asset)} type="button">
+            <article className={`visualCard ${approvedIds.has(asset.id) ? 'approved' : ''}`} key={asset.id}>
+              <div className="visualCardImage" onClick={() => setExpandedAsset(asset)}>
                 <VisualAssetPreview projectId={project.id} asset={asset} cacheKey={project.updatedAt} />
-                <span>Ampliar</span>
-              </button>
-              <div className="assetMeta">
-                <div>
-                  <strong>{asset.name}</strong>
-                  <small>{visualAssetSummary(asset)}</small>
+                <div className="visualCardOverlay">
+                  <button className="iconButton" title="Generar con IA (Puter)" onClick={(e) => { e.stopPropagation(); generateWithAI(asset); }} disabled={aiBusyId === asset.id || regeneratingId === asset.id || busyId === asset.id}>
+                    {aiBusyId === asset.id ? '⏳' : '✨'}
+                  </button>
+                  <button className="iconButton" title="Regenerar SVG Local" onClick={(e) => { e.stopPropagation(); regenerateAsset(asset.id); }} disabled={regeneratingId === asset.id || busyId === asset.id}>
+                    {regeneratingId === asset.id ? '⏳' : '🔄'}
+                  </button>
+                  <button className="iconButton approveBtn" title="Aprobar para producción" onClick={(e) => { e.stopPropagation(); approveAsset(asset.id); }} disabled={busyId === asset.id || approvedIds.has(asset.id) || regeneratingId === asset.id}>
+                    {busyId === asset.id ? '⏳' : approvedIds.has(asset.id) ? '✅' : 'Aprobar'}
+                  </button>
                 </div>
-                <p>{cleanPrompt(asset.prompt)}</p>
-                <div className="assetProviderRow">
-                  <span className={`assetProvider ${asset.externalStatus === 'GENERATED' ? 'external' : asset.externalStatus === 'FALLBACK_USED' ? 'fallback' : 'local'}`}>
-                    {asset.externalStatus === 'GENERATED'
-                      ? `IA externa: ${asset.externalProvider || 'puter'}`
-                      : asset.externalStatus === 'FALLBACK_USED'
-                        ? 'Fallback local activo'
-                        : 'SVG local disponible'}
-                  </span>
-                  {asset.externalError && <small>{asset.externalError}</small>}
-                </div>
-                <span className={`assetState ${approvedIds.has(asset.id) ? 'approved' : 'pending'}`}>
-                  {approvedIds.has(asset.id) ? 'Aprobado para exportación' : 'Pendiente de aprobación visual'}
-                </span>
               </div>
-              <div className="assetActions">
-                <button className="button primary" onClick={() => generateWithAI(asset)} disabled={aiBusyId === asset.id || regeneratingId === asset.id || busyId === asset.id}>
-                  {aiBusyId === asset.id && <span className="spinner" />}
-                  Generar con IA
-                </button>
-                <button className="button" onClick={() => regenerateAsset(asset.id)} disabled={regeneratingId === asset.id || busyId === asset.id}>
-                  {regeneratingId === asset.id && <span className="spinner" />}
-                  Otra opción local
-                </button>
-                <button className="button" onClick={() => useLocalFallback(asset)} disabled={regeneratingId === asset.id || busyId === asset.id || aiBusyId === asset.id}>
-                  Fallback local
-                </button>
-                <button className="button" onClick={() => approveAsset(asset.id)} disabled={busyId === asset.id || approvedIds.has(asset.id) || regeneratingId === asset.id}>
-                  {busyId === asset.id && <span className="spinner" />}
-                  {approvedIds.has(asset.id) ? 'Aprobado' : 'Aprobar'}
-                </button>
+              <div className="visualCardMeta">
+                <strong>{asset.name}</strong>
+                <small>{visualAssetSummary(asset)}</small>
+                <div className="visualCardStatus">
+                  <span className={`statusIndicator ${asset.externalStatus === 'GENERATED' ? 'external' : asset.externalStatus === 'FALLBACK_USED' ? 'fallback' : 'local'}`}></span>
+                  <span className="statusText" title={asset.externalError || ''}>
+                    {asset.externalStatus === 'GENERATED' ? `IA externa (${asset.externalProvider || 'puter'})` : asset.externalStatus === 'FALLBACK_USED' ? 'Fallback' : 'Local SVG'}
+                  </span>
+                </div>
               </div>
             </article>
           ))}
