@@ -44,6 +44,13 @@ export const api = {
       body: JSON.stringify({}),
     }),
   layoutReport: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/layout/report`),
+  rhythmReport: (id: number) => request<Record<string, unknown>>(`/api/projects/${id}/layout/rhythm/report`),
+  applyRhythm: (id: number) =>
+    request<Record<string, unknown>>(`/api/projects/${id}/layout/rhythm/apply`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      body: JSON.stringify({}),
+    }),
   layoutStyles: (id: number) => request<{ styles: any[] }>(`/api/projects/${id}/layout/styles`),
   layoutPages: (id: number) => request<{ pages: any[] }>(`/api/projects/${id}/layout/pages`),
   layoutRegeneratePage: (id: number, pageId: string) => 

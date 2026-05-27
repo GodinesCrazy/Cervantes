@@ -9,8 +9,14 @@ export class PremiumPageTemplateEngine {
       variant: page.variant ?? index % 3,
       qualityNote:
         page.qualityNote ||
-        (page.type === 'reading-page'
+        (['reading-page', 'reading-spread'].includes(page.type)
           ? 'Página de lectura con jerarquía, capitular y ritmo editorial.'
+          : page.type === 'case-study'
+            ? 'Caso aplicado para humanizar y concretar el contenido.'
+            : page.type === 'comparison-table'
+              ? 'Tabla editorial para convertir texto en decisión.'
+              : page.type === 'chapter-summary'
+                ? 'Cierre accionable para reforzar aprendizaje.'
           : 'Página crítica renderizada con plantilla premium.'),
     }));
 

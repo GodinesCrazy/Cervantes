@@ -12,6 +12,8 @@ import { EditorialRewriteEngine } from './editorialRewriteEngine';
 import { PremiumPageTemplateEngine } from './premiumPageTemplateEngine';
 import { ProfessionalEbookInspector, type ProfessionalEbookReport } from './professionalEbookInspector';
 import { EditorialPageComposer, type PersistedPageState } from './pageComposer';
+import { EditorialRhythmEngine, type EditorialRhythmReport } from './rhythmEngine';
+import { EditorialRhythmInspector } from './rhythmInspector';
 
 const root = path.resolve(__dirname, '../../../..');
 const exportDir = path.join(root, 'storage', 'exports');
@@ -36,6 +38,7 @@ export type RenderedEditorialLayout = {
   report: VisualQualityReport;
   artDirection: ArtDirectionReport;
   professionalReport: ProfessionalEbookReport;
+  rhythmReport: EditorialRhythmReport;
 };
 
 export class EditorialLayoutService {
@@ -49,6 +52,8 @@ export class EditorialLayoutService {
   private readonly templateEngine = new PremiumPageTemplateEngine();
   private readonly professionalInspector = new ProfessionalEbookInspector();
   private readonly pageComposer = new EditorialPageComposer();
+  private readonly rhythmEngine = new EditorialRhythmEngine();
+  private readonly rhythmInspector = new EditorialRhythmInspector();
 
   async assembleManuscript(projectId: number) {
     const project = await prisma.project.findUnique({
@@ -153,11 +158,12 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     };
     const baseLayout = this.layoutEngine.build(rewrittenProject, direction.theme || EditorialThemeEngine.fromVisualBible(project.visualBible), manuscript);
     const enhancedLayout = this.templateEngine.enhance(baseLayout);
+    const rhythmApplied = this.rhythmEngine.apply(enhancedLayout).layout;
     const previousStates = this.parsePageStates(latest?.pageTemplates);
     if (previousStates.length) {
-      enhancedLayout.pages = this.pageComposer.merge(enhancedLayout.pages, previousStates);
+      rhythmApplied.pages = this.pageComposer.merge(rhythmApplied.pages, previousStates);
     }
-    return enhancedLayout;
+    return rhythmApplied;
   }
 
   async renderProject(projectId: number, options: { assetBase?: string; persist?: boolean; themeKey?: string } = {}): Promise<RenderedEditorialLayout> {
@@ -171,6 +177,7 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     await fs.writeFile(htmlPath, html, 'utf8');
     const report = await this.inspector.inspect(layout, html, htmlPath);
     const depthReport = this.depthInspector.inspect(layout);
+    const rhythmReport = this.rhythmInspector.inspect(layout);
     const professionalReport = await this.professionalInspector.inspect(layout, html);
     const project = await prisma.project.findUnique({
       where: { id: projectId },
@@ -180,8 +187,8 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     const artDirection = this.artDirection.choose(project, layout.theme.key);
     const pageStates = this.pageComposer.summarize(layout.pages);
     const pageApprovals = Object.fromEntries(pageStates.map((page) => [page.id, page.status]));
-    const status = report.status === 'APPROVED' && depthReport.status === 'APPROVED' && professionalReport.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
-    const combinedReport = { ...report, status, professional: professionalReport, depth: depthReport } as VisualQualityReport;
+    const status = report.status === 'APPROVED' && professionalReport.status === 'APPROVED' && rhythmReport.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
+    const combinedReport = { ...report, status, professional: professionalReport, depth: depthReport, rhythm: rhythmReport } as VisualQualityReport;
     
     if (options.persist !== false) {
       await prisma.editorialLayout.create({
@@ -194,13 +201,13 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
           pageApprovals: JSON.stringify(pageApprovals),
           renderedHtmlPath: htmlPath,
           visualReport: JSON.stringify(combinedReport),
-          editorialReport: JSON.stringify({ artDirection, professional: professionalReport, depth: depthReport }),
+          editorialReport: JSON.stringify({ artDirection, professional: professionalReport, depth: depthReport, rhythm: rhythmReport }),
           status,
           lastRenderedAt: new Date(),
         },
       });
     }
-    return { layout, html, htmlPath, report: combinedReport, artDirection, professionalReport };
+    return { layout, html, htmlPath, report: combinedReport, artDirection, professionalReport, rhythmReport };
   }
 
   async latestReport(projectId: number) {
@@ -234,6 +241,21 @@ Assets SVG generados localmente por Cervantes como elementos editables y reempla
     const report = await this.artDirectionReport(projectId, preferredStyle);
     const rendered = await this.renderProject(projectId, { themeKey: report.styleKey, persist: true });
     return { ...report, layoutStatus: rendered.professionalReport.status, pages: rendered.layout.pages.length };
+  }
+
+  async rhythmReport(projectId: number) {
+    const rendered = await this.renderProject(projectId, { persist: false });
+    return rendered.rhythmReport;
+  }
+
+  async applyRhythm(projectId: number) {
+    const rendered = await this.renderProject(projectId, { persist: true });
+    return {
+      status: rendered.rhythmReport.status,
+      pages: rendered.layout.pages.length,
+      report: rendered.rhythmReport,
+      visualStatus: rendered.report.status,
+    };
   }
 
   private parsePageStates(value?: string | null): PersistedPageState[] {

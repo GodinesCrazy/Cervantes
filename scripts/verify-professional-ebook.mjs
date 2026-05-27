@@ -38,17 +38,20 @@ const render = await request(`${api}/projects/${id}/layout/render`, {
 assert(render.professionalReport, 'Missing professional ebook report.');
 assert(render.professionalReport.status === 'APPROVED', `Professional ebook report failed: ${JSON.stringify(render.professionalReport, null, 2)}`);
 assert(render.professionalReport.score >= 80, `Professional score too low: ${render.professionalReport.score}`);
+assert(render.report?.rhythm, 'Missing editorial rhythm report in layout render.');
+assert(render.report.rhythm.score >= 70, `Editorial rhythm score too low: ${render.report.rhythm.score}`);
 
 const pagesResponse = await request(`${api}/projects/${id}/layout/pages`);
 const pages = pagesResponse.pages || [];
 assert(pages.length >= 8, 'Not enough persisted editorial pages.');
-for (const type of ['cover', 'title', 'toc', 'chapter-opener', 'reading-page', 'figure-page', 'worksheet', 'credits']) {
+for (const type of ['cover', 'title', 'toc', 'chapter-opener', 'reading-page', 'figure-page', 'case-study', 'comparison-table', 'chapter-summary', 'worksheet', 'credits']) {
   assert(pages.some((page) => page.type === type), `Missing page type ${type}.`);
 }
+assert(!pages.some((page) => /\/\s*continuaci[oó]n|continuacion/i.test(page.title)), 'Mechanical continuation titles remain.');
 assert(pages.filter((page) => page.status === 'APPROVED').length >= 6, 'Too few approved pages.');
 
 const html = await request(`${api}/projects/${id}/preview`);
-for (const marker of ['professional-layout', 'book-cover', 'chapter-opener', 'figure-page', 'worksheet-page']) {
+for (const marker of ['professional-layout', 'book-cover', 'chapter-opener', 'figure-page', 'case-study-page', 'table-page', 'worksheet-page']) {
   assert(html.includes(marker), `Preview missing ${marker}.`);
 }
 assert(!html.includes('**'), 'Preview contains visible Markdown bold markers.');
@@ -67,7 +70,7 @@ const project = await request(`${api}/projects/${id}/production-package`, {
 });
 const packagePath = project.exportPackages?.[0]?.filePath;
 assert(packagePath, 'Production package was not generated.');
-for (const required of ['visual_style.json', 'layout_report.json', 'page_approvals.json', 'professional_ebook_report.md']) {
+for (const required of ['visual_style.json', 'layout_report.json', 'page_approvals.json', 'professional_ebook_report.md', 'rhythm_report.json']) {
   assert(await zipHas(packagePath, required), `Production ZIP missing ${required}.`);
 }
 

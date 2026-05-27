@@ -41,13 +41,29 @@ function renderPage(page: LayoutPage, assetBase: string, index: number, layout: 
   if (page.type === 'worksheet') {
     return `<section id="${pageId}" class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase, layout)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
   }
+  if (page.type === 'case-study') {
+    return `<section id="${pageId}" class="book-page case-study-page" data-page-type="case-study"><p class="kicker">Caso aplicado</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><div class="case-box">${page.content.map((item, itemIndex) => `<p><strong>${['Situación', 'Decisión', 'Resultado'][itemIndex] || 'Nota'}:</strong> ${inline(item.replace(/^[^:]+:\s*/, ''))}</p>`).join('')}</div><img class="icon-strip compact" src="${assetUrl('icons', assetBase, layout)}" alt=""></section>`;
+  }
+  if (page.type === 'comparison-table') {
+    const cells = page.content.length ? page.content : ['Señal', 'Criterio', 'Acción', 'Revisión'];
+    return `<section id="${pageId}" class="book-page table-page" data-page-type="comparison-table"><p class="kicker">Tabla editorial</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><table class="decision-table"><thead><tr>${cells.map((item) => `<th>${inline(item)}</th>`).join('')}</tr></thead><tbody>${[1, 2, 3].map((row) => `<tr>${cells.map((_, col) => `<td>${inline(['Observar', 'Interpretar', 'Aplicar', 'Revisar'][(row + col) % 4])}</td>`).join('')}</tr>`).join('')}</tbody></table><p class="editorial-note">Usa esta tabla como puente entre lectura y decisión práctica.</p></section>`;
+  }
+  if (page.type === 'practice-lab') {
+    return `<section id="${pageId}" class="book-page practice-page" data-page-type="practice-lab"><p class="kicker">Práctica guiada</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase, layout)}" alt="Worksheet imprimible"><div class="practice-grid">${page.content.map((item) => `<div><span></span>${inline(item)}</div>`).join('')}</div></section>`;
+  }
+  if (page.type === 'chapter-summary' || page.type === 'key-takeaways') {
+    return `<section id="${pageId}" class="book-page summary-page" data-page-type="${page.type}"><p class="kicker">Cierre accionable</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><div class="takeaway-list">${page.content.map((item, itemIndex) => `<div><strong>0${itemIndex + 1}</strong><span>${inline(item)}</span></div>`).join('')}</div><img class="separator-art small" src="${assetUrl('separator', assetBase, layout)}" alt=""></section>`;
+  }
   if (page.type === 'appendix') {
     return `<section id="${pageId}" class="book-page appendix-page" data-page-type="appendix"><p class="kicker">Apendice</p><h1>${inline(page.title)}</h1><div class="check-grid">${page.content.map((item) => `<div>${inline(item)}</div>`).join('')}</div></section>`;
   }
   if (page.type === 'credits') {
     return `<section id="${pageId}" class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase, layout)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
-  return `<section id="${pageId}" class="book-page reading-page variant-${page.variant || 0}" data-page-type="reading-page"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><img class="separator-inline" src="${assetUrl('separator', assetBase, layout)}" alt=""><aside class="margin-note"><strong>Guia de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
+  const spreadClass = page.type === 'reading-spread' ? ' reading-spread' : '';
+  const note = page.variant === 2 ? '<blockquote>Convierte la lectura en una acción observable antes de pasar al siguiente tramo.</blockquote>' : '<aside class="margin-note"><strong>Guía de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>';
+  const separator = page.assetRole === 'separator' ? `<img class="separator-inline" src="${assetUrl('separator', assetBase, layout)}" alt="">` : '';
+  return `<section id="${pageId}" class="book-page reading-page${spreadClass} variant-${page.variant || 0}" data-page-type="${page.type}"><p class="chapter-label">Capítulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1>${separator}${note}${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
 }
 
 function css(theme: EditorialTheme) {
@@ -77,6 +93,8 @@ strong{font-weight:700;color:#111}em{color:var(--muted)}
 .chapter-opener{display:grid;align-content:end;background:var(--dark);color:var(--paper2)}.chapter-opener:before{border-color:rgba(183,146,54,.7)}.chapter-opener:after{color:var(--gold);border-color:rgba(183,146,54,.32)}
 .chapter-opener h1{color:var(--paper2);font-size:48px}.chapter-opener .standfirst{color:#e6d3a6;font-size:18px}.chapter-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.58}
 .reading-page p:nth-of-type(2)::first-letter{float:left;font-size:56px;line-height:.85;padding:4px 8px 0 0;color:var(--gold)}
+.reading-spread{padding-left:22mm;padding-right:22mm}.reading-spread p{font-size:13.7px;max-width:158mm}.reading-spread h1{font-size:31px}
+blockquote{margin:0 0 6mm 8mm;float:right;width:48mm;border-left:4px solid var(--gold);padding:4mm 0 4mm 5mm;font:italic 15px Georgia;color:#3b3429;background:rgba(255,255,255,.36)}
 .separator-inline{width:100%;height:24mm;object-fit:cover;margin:-2mm 0 4mm}
 .margin-note{float:right;width:43mm;margin:0 0 6mm 8mm;border:1px solid var(--line);border-top:5px solid var(--gold);padding:5mm;background:rgba(255,255,255,.48);font-family:${theme.typography.sans};font-size:12px;color:var(--muted)}
 .margin-note strong{display:block;color:var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:2mm}.margin-note span{display:block;line-height:1.35}
@@ -85,6 +103,11 @@ figure{margin:8mm 0;text-align:center;break-inside:avoid}figure img{max-width:10
 .worksheet-art,.mockup-art{width:100%;max-height:132mm;object-fit:contain;margin:4mm 0 7mm;border:1px solid var(--line);background:white}
 .bullet{display:grid;grid-template-columns:6mm 1fr;gap:3mm;padding:3mm 0 3mm 4mm;border-left:2px solid var(--gold);background:rgba(255,255,255,.42)}.bullet span{width:13px;height:13px;border:2px solid var(--accent);margin-top:2px}
 .check-grid{display:grid;grid-template-columns:1fr 1fr;gap:5mm}.check-grid div{border:1px solid var(--line);background:rgba(255,255,255,.48);padding:6mm;font-size:16px}
+.case-study-page,.table-page,.summary-page,.practice-page{background:linear-gradient(180deg,#fbf4e7,#efe0c4)}
+.case-box{border:1px solid var(--line);border-top:5px solid var(--gold);background:rgba(255,255,255,.62);padding:8mm;margin-top:8mm}.case-box p{max-width:none;font-size:15.5px}
+.icon-strip.compact{max-height:38mm;object-fit:cover;margin-top:8mm}
+.decision-table{width:100%;border-collapse:collapse;margin:10mm 0;background:rgba(255,255,255,.7);font-family:${theme.typography.sans}}.decision-table th{background:var(--dark);color:var(--paper2);padding:5mm;font-size:12px;text-transform:uppercase;letter-spacing:1px}.decision-table td{border:1px solid var(--line);padding:6mm;font-size:14px}.editorial-note{border-left:3px solid var(--gold);padding-left:5mm;color:var(--muted)}
+.practice-grid,.takeaway-list{display:grid;gap:4mm;margin-top:8mm}.practice-grid div,.takeaway-list div{display:grid;grid-template-columns:10mm 1fr;gap:4mm;align-items:start;border:1px solid var(--line);background:rgba(255,255,255,.56);padding:5mm}.practice-grid span{width:18px;height:18px;border:2px solid var(--accent);margin-top:2px}.takeaway-list strong{font-family:${theme.typography.sans};color:var(--gold);font-size:22px}.takeaway-list span{font-size:16px}.separator-art.small{width:100mm;margin-top:12mm}
 .appendix-page,.credits-page{background:linear-gradient(180deg,#f7f0e3,#efe2c9)}
 @media screen{body{padding:18px 0}.book-cover,.book-page{max-width:min(92vw,210mm)}}
 @media print{body{background:white}.book-cover,.book-page{margin:0;box-shadow:none}}

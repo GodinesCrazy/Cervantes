@@ -21,30 +21,10 @@ async function fileContainsZipName(zipPath, name) {
   return buffer.includes(Buffer.from(name));
 }
 
-const idea = 'Un ebook premium sobre runas para principiantes con enfoque practico, visual, ejercicios guiados, glosario y preparacion multidioma.';
-let project = await request(`${api}/projects`, {
-  method: 'POST',
-  body: JSON.stringify({ name: 'Proyecto en análisis', rawIdea: idea, topic: idea, audience: 'Por definir', tone: 'Premium practico' }),
-});
-
-project = await request(`${api}/projects/${project.id}/idea`, { method: 'POST', body: JSON.stringify({ rawIdea: idea, topic: idea }) });
-project = await request(`${api}/projects/${project.id}/market-research`, { method: 'POST', body: JSON.stringify({ userVerified: true, sourceNotes: 'Competitor and pricing notes verified manually for local production.' }) });
-
-for (const endpoint of [
-  'language-opportunity',
-  'go-nogo',
-  'editorial-formula',
-  'editorial-bible',
-  'visual-bible',
-  'chapter-plans',
-  'blocks',
-  'audit',
-  'recovery',
-  'metadata',
-  'publishing-checklist',
-]) {
-  project = await request(`${api}/projects/${project.id}/${endpoint}`, { method: 'POST', body: JSON.stringify({}) });
-}
+const projectId = process.argv[2] || '35';
+let project = await request(`${api}/projects/${projectId}`);
+project = await request(`${api}/projects/${project.id}/layout/rhythm/apply`, { method: 'POST', body: JSON.stringify({}) })
+  .then(() => request(`${api}/projects/${projectId}`));
 
 for (const asset of project.visualAssets || []) {
   project = await request(`${api}/projects/${project.id}/visual-assets/${asset.id}`, {
@@ -108,6 +88,7 @@ for (const required of [
   'layout_report.json',
   'page_approvals.json',
   'professional_ebook_report.md',
+  'rhythm_report.json',
 ]) {
   assert(await fileContainsZipName(zipPath, required), `Final ZIP missing ${required}`);
 }

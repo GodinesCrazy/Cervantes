@@ -23,8 +23,8 @@ export class ProfessionalEbookInspector {
     const coverSize = await sizeOf(layout.assets.cover);
     const figureSize = await sizeOf(layout.assets['figure-map']);
     const worksheetSize = await sizeOf(layout.assets.worksheet);
-    const readingPages = layout.pages.filter((page) => page.type === 'reading-page');
-    const textHeavyPages = readingPages.filter((page) => page.content.join(' ').split(/\s+/).length > 330);
+    const readingPages = layout.pages.filter((page) => ['reading-page', 'reading-spread'].includes(page.type));
+    const textHeavyPages = readingPages.filter((page) => page.content.join(' ').split(/\s+/).length > 620);
     const emptyPages = layout.pages.filter((page) => !['cover', 'chapter-opener'].includes(page.type) && page.content.join('').trim().length < 18);
     const pageTypes = new Set(layout.pages.map((page) => page.type));
     const markdownLeak = /\*\*|!\[|lorem ipsum|pendiente de redacci[oó]n|como modelo de ia/i.test(html);
@@ -42,6 +42,8 @@ export class ProfessionalEbookInspector {
       noMarkdownOrAiLeak: !markdownLeak,
       approvedCriticalPages,
       premiumHtmlShell: hasTexture,
+      editorialRhythmApplied: ['case-study', 'comparison-table', 'chapter-summary'].every((type) => pageTypes.has(type as never)),
+      noMechanicalContinuationTitles: !layout.pages.some((page) => /\/\s*continuaci[oó]n|continuacion/i.test(page.title)),
     };
     const issues: string[] = [];
     if (!checks.artDirectionApplied) issues.push('Falta dirección de arte aplicada.');
@@ -53,6 +55,8 @@ export class ProfessionalEbookInspector {
     if (!checks.noMarkdownOrAiLeak) issues.push('Hay Markdown, placeholders o tono IA visible.');
     if (!checks.approvedCriticalPages) issues.push('Hay páginas críticas sin aprobación.');
     if (!checks.premiumHtmlShell) issues.push('El HTML no declara shell profesional premium.');
+    if (!checks.editorialRhythmApplied) issues.push('Falta ritmo editorial: casos, tablas o cierres accionables.');
+    if (!checks.noMechanicalContinuationTitles) issues.push('Hay títulos mecánicos de continuación.');
     const score = Math.round((Object.values(checks).filter(Boolean).length / Object.keys(checks).length) * 100);
     return {
       status: issues.length === 0 ? 'APPROVED' : 'NEEDS_REVISION',

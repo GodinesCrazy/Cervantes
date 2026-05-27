@@ -6,7 +6,13 @@ export type LayoutPageType =
   | 'toc'
   | 'chapter-opener'
   | 'reading-page'
+  | 'reading-spread'
   | 'figure-page'
+  | 'case-study'
+  | 'key-takeaways'
+  | 'comparison-table'
+  | 'practice-lab'
+  | 'chapter-summary'
   | 'worksheet'
   | 'appendix'
   | 'credits';
@@ -23,6 +29,11 @@ export type LayoutPage = {
   status?: 'PENDING' | 'NEEDS_REVISION' | 'APPROVED';
   variant?: number;
   qualityNote?: string;
+  rhythmRole?: string;
+  wordCount?: number;
+  density?: 'sparse' | 'balanced' | 'dense';
+  sectionLabel?: string;
+  rhythmStatus?: 'APPROVED' | 'NEEDS_REVISION';
 };
 
 export type LayoutDocument = {
@@ -64,7 +75,11 @@ function splitParagraphs(content?: string | null) {
     .filter((line) => line && !forbiddenRaw.some((pattern) => pattern.test(line)));
 }
 
-function chunkText(paragraphs: string[], maxWords = 210) {
+export function countWords(value: string | string[]) {
+  return (Array.isArray(value) ? value.join(' ') : value).split(/\s+/).filter(Boolean).length;
+}
+
+function chunkText(paragraphs: string[], maxWords = 430) {
   const chunks: string[][] = [];
   let current: string[] = [];
   let words = 0;
@@ -79,7 +94,30 @@ function chunkText(paragraphs: string[], maxWords = 210) {
     words += count;
   }
   if (current.length) chunks.push(current);
+  if (chunks.length > 1 && countWords(chunks[chunks.length - 1]) < 120) {
+    const tail = chunks.pop();
+    if (tail) chunks[chunks.length - 1].push(...tail);
+  }
   return chunks;
+}
+
+function densityFor(words: number): LayoutPage['density'] {
+  if (words < 160) return 'sparse';
+  if (words > 560) return 'dense';
+  return 'balanced';
+}
+
+function pageWithRhythm(page: LayoutPage, role: string): LayoutPage {
+  const wordCount = countWords(page.content);
+  return {
+    ...page,
+    rhythmRole: role,
+    wordCount,
+    density: densityFor(wordCount),
+    rhythmStatus: wordCount > 620 || (wordCount < 120 && !['cover', 'title', 'toc', 'chapter-opener', 'figure-page', 'worksheet', 'appendix', 'credits'].includes(page.type))
+      ? 'NEEDS_REVISION'
+      : 'APPROVED',
+  };
 }
 
 export class EditorialLayoutEngine {
@@ -90,11 +128,11 @@ export class EditorialLayoutEngine {
     const blocks = [...(project.manuscriptBlocks || [])].sort((a, b) => a.order - b.order);
     const pages: LayoutPage[] = [
       { id: 'cover', type: 'cover', title, subtitle, content: [], assetRole: 'cover' },
-      { id: 'title', type: 'title', title, subtitle, content: ['Edicion premium local', 'Cervantes Editorial System'], assetRole: 'separator' },
+      { id: 'title', type: 'title', title, subtitle, content: ['Edición premium local', 'Cervantes Editorial System'], assetRole: 'separator' },
       {
         id: 'toc',
         type: 'toc',
-        title: 'Indice visual',
+        title: 'Índice visual',
         subtitle: 'Mapa de lectura',
         content: chapters.map((chapter) => `${chapter.chapterNumber}. ${chapter.title}`),
         assetRole: 'icons',
@@ -102,9 +140,9 @@ export class EditorialLayoutEngine {
       {
         id: 'method-map',
         type: 'figure-page',
-        title: 'Mapa editorial del metodo',
-        subtitle: 'De la idea a la aplicacion',
-        content: ['Observa el problema, prioriza lo importante, aplica una accion concreta y registra el resultado.'],
+        title: 'Mapa editorial del método',
+        subtitle: 'De la idea a la aplicación',
+        content: ['Observa el problema, prioriza lo importante, aplica una acción concreta y registra el resultado.'],
         assetRole: 'figure-map',
       },
     ];
@@ -122,52 +160,105 @@ export class EditorialLayoutEngine {
         assetRole: 'chapter-opener',
         chapterNumber,
       });
-      chunkText(splitParagraphs(block.content)).forEach((content, pageIndex) => {
+      chunkText(splitParagraphs(block.content), 430).forEach((content, pageIndex) => {
+        const sectionLabels = ['Principios clave', 'Aplicación práctica', 'Ejemplo guiado', 'Errores comunes', 'Cierre del capítulo'];
+        const typeCycle: LayoutPageType[] = ['reading-page', 'reading-spread', 'key-takeaways', 'reading-page'];
+        const type = typeCycle[pageIndex % typeCycle.length];
         pages.push({
           id: `chapter-${chapterNumber}-page-${pageIndex + 1}`,
-          type: 'reading-page',
-          title: pageIndex === 0 ? titleForBlock : `${titleForBlock} / continuacion`,
+          type,
+          title: pageIndex === 0 ? titleForBlock : sectionLabels[(pageIndex - 1) % sectionLabels.length],
           content,
           assetRole: pageIndex === 0 ? 'separator' : undefined,
           chapterNumber,
+          sectionLabel: sectionLabels[pageIndex % sectionLabels.length],
+          variant: pageIndex % 4,
+          qualityNote: type === 'reading-spread'
+            ? 'Página de lectura amplia para compactar contenido sin perder jerarquía.'
+            : 'Página de lectura con densidad editorial equilibrada.',
         });
+      });
+      pages.push({
+        id: `chapter-${chapterNumber}-case`,
+        type: 'case-study',
+        title: 'Caso aplicado',
+        subtitle: titleForBlock,
+        content: [
+          `Situación: una persona principiante necesita aplicar ${titleForBlock.toLowerCase()} sin perder claridad ni seguridad.`,
+          'Decisión editorial: convertir la teoría en una acción observable, breve y revisable.',
+          'Resultado esperado: el lector termina la sección con un criterio práctico y no solo con información acumulada.',
+        ],
+        assetRole: 'icons',
+        chapterNumber,
+        sectionLabel: 'Ejemplo guiado',
+      });
+      pages.push({
+        id: `chapter-${chapterNumber}-table`,
+        type: 'comparison-table',
+        title: 'Tabla de decisión',
+        subtitle: titleForBlock,
+        content: ['Señal observable', 'Interpretación prudente', 'Acción recomendada', 'Cuándo revisar'],
+        assetRole: 'figure-map',
+        chapterNumber,
+        sectionLabel: 'Tabla práctica',
+      });
+      pages.push({
+        id: `chapter-${chapterNumber}-summary`,
+        type: 'chapter-summary',
+        title: 'Cierre accionable',
+        subtitle: titleForBlock,
+        content: ['Idea clave del capítulo', 'Acción concreta para hoy', 'Error común a evitar', 'Pregunta de seguimiento'],
+        assetRole: 'separator',
+        chapterNumber,
+        sectionLabel: 'Resumen',
       });
       if (index === 1) {
         pages.push({
           id: `chapter-${chapterNumber}-worksheet`,
-          type: 'worksheet',
+          type: 'practice-lab',
           title: 'Hoja de trabajo',
           subtitle: 'Checklist aplicable',
-          content: ['Accion clave', 'Senal observable', 'Decision segura', 'Revision semanal'],
+          content: ['Acción clave', 'Señal observable', 'Decisión segura', 'Revisión semanal'],
           assetRole: 'worksheet',
           chapterNumber,
+          sectionLabel: 'Práctica',
         });
       }
     });
 
     pages.push(
       {
+        id: 'global-worksheet',
+        type: 'worksheet',
+        title: 'Worksheet imprimible',
+        subtitle: 'Aplicación práctica',
+        content: ['Acción clave', 'Señal observable', 'Decisión segura', 'Revisión semanal'],
+        assetRole: 'worksheet',
+        sectionLabel: 'Práctica',
+      },
+      {
         id: 'appendix-checklist',
         type: 'appendix',
         title: 'Checklist editorial',
-        content: ['Estructura completa', 'Jerarquia visual clara', 'Assets aprobados', 'Metadata preparada', 'Declaracion IA incluida'],
+        content: ['Estructura completa', 'Jerarquía visual clara', 'Assets aprobados', 'Metadata preparada', 'Declaración IA incluida'],
         assetRole: 'worksheet',
       },
       {
         id: 'credits',
         type: 'credits',
-        title: 'Creditos visuales',
+        title: 'Créditos visuales',
         content: ['Assets SVG generados localmente por Cervantes como elementos editables y reemplazables.'],
         assetRole: 'mockup',
       },
     );
+    const rhythmPages = pages.map((page) => pageWithRhythm(page, page.sectionLabel || page.type));
 
     return {
       projectId: project.id,
       title,
       subtitle,
       theme,
-      pages,
+      pages: rhythmPages,
       assets: {},
       markdown,
     };

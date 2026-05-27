@@ -1540,3 +1540,41 @@ textarea {
   border-top: 1px solid rgba(255,255,255,0.1);
   justify-content: flex-end;
 }
+
+.rhythmPanel {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
+  gap: 12px;
+  align-items: stretch;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  background: rgba(201, 162, 39, 0.08);
+}
+
+.rhythmPanel div {
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: 10px;
+  background: rgba(0,0,0,0.16);
+}
+
+.rhythmPanel span,
+.rhythmPanel small {
+  display: block;
+  color: #9fb0b3;
+  font-size: 12px;
+}
+
+.rhythmPanel strong {
+  display: block;
+  color: #f5f2ea;
+  font-size: 18px;
+  margin: 4px 0;
+}
+
+.rhythmPanel ul {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 8px 12px 0 24px;
+  color: #f2d16b;
+}

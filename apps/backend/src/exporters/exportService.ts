@@ -15,6 +15,16 @@ async function ensureDir() {
   await fs.mkdir(exportDir, { recursive: true });
 }
 
+async function fileExists(filePath?: string | null) {
+  if (!filePath) return false;
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile() && stat.size > 256;
+  } catch {
+    return false;
+  }
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -74,6 +84,18 @@ function svgTitleLines(title: string, x: number, y: number, maxChars = 23, lineH
 
 export class ExportService {
   private readonly layoutService = new EditorialLayoutService();
+
+  private async latestUsableBuild(projectId: number, format: string) {
+    const build = await prisma.formatBuild.findFirst({
+      where: { projectId, format, status: 'DONE' },
+      orderBy: { createdAt: 'desc' },
+    });
+    return build?.filePath && await fileExists(build.filePath) ? build : null;
+  }
+
+  private async exportFormatCached(projectId: number, format: string) {
+    return (await this.latestUsableBuild(projectId, format)) || this.exportFormat(projectId, format);
+  }
 
   private async premiumAssets(projectId: number, title: string) {
     const assetDir = path.join(exportDir, `project-${projectId}-assets`);
@@ -345,10 +367,10 @@ export class ExportService {
     const assets = rendered.layout.assets;
     const html = rendered.html;
     const pageApprovals = Object.fromEntries(rendered.layout.pages.map((page) => [page.id, page.status || 'APPROVED']));
-    const mdBuild = await this.exportFormat(projectId, 'md');
-    const docxBuild = await this.exportFormat(projectId, 'docx');
-    const pdfBuild = await this.exportFormat(projectId, 'pdf');
-    const epubBuild = await this.exportFormat(projectId, 'epub');
+    const mdBuild = await this.exportFormatCached(projectId, 'md');
+    const docxBuild = await this.exportFormatCached(projectId, 'docx');
+    const pdfBuild = await this.exportFormatCached(projectId, 'pdf');
+    const epubBuild = await this.exportFormatCached(projectId, 'epub');
     const fullProject = await prisma.project.findUnique({
       where: { id: projectId },
       include: { metadataPackage: true, publishingChecklist: true, visualBible: true },
@@ -434,6 +456,9 @@ ${JSON.stringify(gumroad, null, 2)}
 
 ## Professional Ebook
 ${JSON.stringify(rendered.professionalReport, null, 2)}
+
+## Editorial Rhythm
+${JSON.stringify(rendered.rhythmReport, null, 2)}
 `;
     const output = await fs.open(zipPath, 'w');
     await output.close();
@@ -460,6 +485,7 @@ ${JSON.stringify(rendered.professionalReport, null, 2)}
       archive.append(aiDeclaration, { name: 'ai_declaration.md' });
       archive.append(qualityReport, { name: 'quality_report.md' });
       archive.append(JSON.stringify(rendered.report, null, 2), { name: 'visual_quality_report.json' });
+      archive.append(JSON.stringify(rendered.rhythmReport, null, 2), { name: 'rhythm_report.json' });
       archive.append(JSON.stringify(rendered.artDirection, null, 2), { name: 'visual_style.json' });
       archive.append(JSON.stringify({ pages: rendered.layout.pages, report: rendered.report }, null, 2), { name: 'layout_report.json' });
       archive.append(JSON.stringify(pageApprovals, null, 2), { name: 'page_approvals.json' });

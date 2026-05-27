@@ -787,7 +787,16 @@ router.post('/:id/layout/render', async (req, res, next) => {
       report: rendered.report,
       artDirection: rendered.artDirection,
       professionalReport: rendered.professionalReport,
-      pages: rendered.layout.pages.map((page) => ({ id: page.id, type: page.type, title: page.title, assetRole: page.assetRole })),
+      pages: rendered.layout.pages.map((page) => ({
+        id: page.id,
+        type: page.type,
+        title: page.title,
+        assetRole: page.assetRole,
+        rhythmRole: page.rhythmRole,
+        wordCount: page.wordCount,
+        density: page.density,
+        rhythmStatus: page.rhythmStatus,
+      })),
       assets: Object.keys(rendered.layout.assets),
     });
   } catch (error) {
@@ -800,6 +809,25 @@ router.get('/:id/layout/report', async (req, res, next) => {
     const projectId = Number(req.params.id);
     const report = (await layoutService.latestReport(projectId)) || (await layoutService.renderProject(projectId, { persist: true })).report;
     res.json(report);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/layout/rhythm/report', async (req, res, next) => {
+  try {
+    res.json(await layoutService.rhythmReport(Number(req.params.id)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/layout/rhythm/apply', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const result = await layoutService.applyRhythm(projectId);
+    await upsertGate(projectId, 'preview', result.visualStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Ritmo editorial: ${result.status}`);
+    res.json(result);
   } catch (error) {
     next(error);
   }
@@ -842,6 +870,11 @@ router.get('/:id/layout/pages', async (req, res, next) => {
         status: page.status || 'APPROVED',
         variant: page.variant || index % 3,
         qualityNote: page.qualityNote || 'Página generada por la maqueta premium.',
+        rhythmRole: page.rhythmRole,
+        wordCount: page.wordCount,
+        density: page.density,
+        sectionLabel: page.sectionLabel,
+        rhythmStatus: page.rhythmStatus,
         number: index + 1,
       }));
     }

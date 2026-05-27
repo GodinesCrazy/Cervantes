@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EditorialHtmlRenderer } from './htmlRenderer';
 import { EditorialLayoutEngine } from './layoutEngine';
+import { EditorialRhythmEngine } from './rhythmEngine';
 import { EditorialThemeEngine } from './themeEngine';
 import { VisualQualityInspector } from './visualQualityInspector';
 
@@ -26,6 +27,26 @@ describe('editorial visual layout engine', () => {
       '# Guia premium',
     );
     expect(layout.pages.map((page) => page.type)).toEqual(expect.arrayContaining(['cover', 'title', 'toc', 'chapter-opener', 'reading-page', 'figure-page', 'worksheet', 'appendix', 'credits']));
+  });
+
+  it('applies premium editorial rhythm without mechanical continuation titles', () => {
+    const longParagraph = Array.from({ length: 90 }, (_, index) => `Parrafo editorial ${index} con una accion concreta, criterio practico y cierre revisable.`).join('\n\n');
+    const layout = new EditorialLayoutEngine().build(
+      {
+        id: 35,
+        name: 'Runas premium',
+        chapterPlans: [{ chapterNumber: 1, title: 'Introduccion', summary: 'Metodo', order: 1 }],
+        manuscriptBlocks: [{ blockTitle: 'Introduccion', order: 1, content: longParagraph }],
+      },
+      theme,
+      '# Runas premium',
+    );
+    const { layout: rhythmLayout, report } = new EditorialRhythmEngine().apply(layout);
+    expect(rhythmLayout.pages.some((page) => page.type === 'case-study')).toBe(true);
+    expect(rhythmLayout.pages.some((page) => page.type === 'comparison-table')).toBe(true);
+    expect(rhythmLayout.pages.some((page) => page.type === 'chapter-summary')).toBe(true);
+    expect(rhythmLayout.pages.some((page) => /continuacion/i.test(page.title))).toBe(false);
+    expect(report.checks.noMechanicalTitles).toBe(true);
   });
 
   it('renders premium html without visible markdown markers', () => {

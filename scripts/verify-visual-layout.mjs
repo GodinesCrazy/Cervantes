@@ -17,11 +17,12 @@ async function request(url, options = {}) {
   return body;
 }
 
-const id = process.argv[2] || '14';
+const id = process.argv[2] || '35';
 
 const render = await request(`${api}/projects/${id}/layout/render`, { method: 'POST', body: JSON.stringify({}) });
-assert(render.status === 'APPROVED', `Visual layout not approved: ${JSON.stringify(render.report)}`);
+assert(render.report?.checks && Object.values(render.report.checks).every(Boolean), `Visual layout checks failed: ${JSON.stringify(render.report)}`);
 assert(render.professionalReport?.status === 'APPROVED', `Professional report not approved: ${JSON.stringify(render.professionalReport)}`);
+assert((render.report?.rhythm?.score || 0) >= 80, `Editorial rhythm score too low: ${JSON.stringify(render.report?.rhythm)}`);
 assert(render.report?.pageCount >= 8, 'Visual layout has too few pages.');
 assert(render.report?.assetCount >= 7, 'Visual layout has too few assets.');
 

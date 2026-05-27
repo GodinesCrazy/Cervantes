@@ -1097,6 +1097,7 @@ export function PreviewPage() {
   const [mode, setMode] = useState<'pdf' | 'epub' | 'package'>('pdf');
   const [busy, setBusy] = useState(false);
   const [layoutReport, setLayoutReport] = useState<Record<string, unknown> | null>(null);
+  const [rhythmReport, setRhythmReport] = useState<Record<string, unknown> | null>(null);
   const [pages, setPages] = useState<any[]>([]);
   const [styles, setStyles] = useState<any[]>([]);
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
@@ -1122,11 +1123,20 @@ export function PreviewPage() {
     }
   }, [project.id]);
 
+  const fetchRhythm = useCallback(async () => {
+    try {
+      setRhythmReport(await api.rhythmReport(project.id));
+    } catch (error) {
+      console.error(error);
+    }
+  }, [project.id]);
+
   useEffect(() => {
     fetchPages();
     fetchStyles();
+    fetchRhythm();
     api.layoutReport(project.id).then(setLayoutReport).catch(() => setLayoutReport(null));
-  }, [project.id, fetchPages, fetchStyles]);
+  }, [project.id, fetchPages, fetchStyles, fetchRhythm]);
 
   async function regenerateLayout() {
     setBusy(true);
@@ -1134,6 +1144,7 @@ export function PreviewPage() {
       const result = await api.renderLayout(project.id);
       setLayoutReport((result.report as Record<string, unknown>) || result);
       await fetchPages();
+      await fetchRhythm();
       showToast('Maquetación editorial regenerada', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error al regenerar layout', 'error');
@@ -1179,6 +1190,7 @@ export function PreviewPage() {
       setLayoutReport(result);
       await fetchPages();
       await fetchStyles();
+      await fetchRhythm();
       showToast('Dirección de arte aplicada', 'success');
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Error al aplicar estilo', 'error');
@@ -1187,8 +1199,27 @@ export function PreviewPage() {
     }
   }
 
+  async function optimizeRhythm() {
+    setBusy(true);
+    try {
+      const result = await api.applyRhythm(project.id);
+      setRhythmReport((result.report as Record<string, unknown>) || result);
+      await fetchPages();
+      const report = await api.layoutReport(project.id).catch(() => null);
+      if (report) setLayoutReport(report);
+      showToast('Ritmo editorial optimizado', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error al optimizar ritmo editorial', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selectedPage = pages.find(p => p.id === selectedPageId);
   const approvedPageCount = pages.filter((page) => page.status === 'APPROVED').length;
+  const rhythm = rhythmReport || (layoutReport?.rhythm as Record<string, unknown> | undefined) || {};
+  const targetRange = (rhythm.targetRange as { min?: number; max?: number } | undefined) || {};
+  const rhythmActions = Array.isArray(rhythm.actions) ? rhythm.actions as string[] : [];
 
   return (
     <>
@@ -1230,6 +1261,32 @@ export function PreviewPage() {
           <input type="range" min={50} max={150} value={zoom} onChange={e => setZoom(Number(e.target.value))} />
         </label>
       </section>
+      <section className="rhythmPanel">
+        <div>
+          <span>Ritmo editorial</span>
+          <strong>{String(rhythm.status || 'Pendiente')}</strong>
+          <small>{String(rhythm.pageCount || pages.length || '-')} páginas · objetivo {targetRange.min || '-'}-{targetRange.max || '-'}</small>
+        </div>
+        <div>
+          <span>Páginas repetidas</span>
+          <strong>{String(rhythm.repeatedRuns ?? '-')}</strong>
+          <small>Deben evitarse más de dos plantillas iguales seguidas.</small>
+        </div>
+        <div>
+          <span>Densidad</span>
+          <strong>{String(rhythm.sparsePages ?? 0)} bajas / {String(rhythm.densePages ?? 0)} altas</strong>
+          <small>La app compacta o divide automáticamente.</small>
+        </div>
+        <button className="button primary" onClick={optimizeRhythm} disabled={busy}>
+          {busy && <span className="spinner" />}
+          Optimizar ritmo editorial
+        </button>
+        {rhythmActions.length > 0 && (
+          <ul>
+            {rhythmActions.slice(0, 3).map((action) => <li key={action}>{action}</li>)}
+          </ul>
+        )}
+      </section>
 
       {mode === 'pdf' ? (
         <div className="page-builder-container">
@@ -1245,7 +1302,7 @@ export function PreviewPage() {
                 </div>
                 <div className="thumbnail-info">
                   <span className="page-num">Pág {i+1}</span>
-                  <span className="page-type">{page.type.substring(0, 8)}...</span>
+                  <span className="page-type">{page.rhythmRole || page.sectionLabel || page.type.substring(0, 8)}</span>
                   <span className={`status-badge ${String(page.status || '').toLowerCase()}`} title={page.status}>{page.status === 'APPROVED' ? 'OK' : page.status === 'NEEDS_REVISION' ? 'Revisar' : 'Pendiente'}</span>
                 </div>
               </div>
@@ -1266,7 +1323,12 @@ export function PreviewPage() {
                       <option value="toc">Índice visual</option>
                       <option value="chapter-opener">Apertura Capítulo</option>
                       <option value="reading-page">Página de lectura</option>
+                      <option value="reading-spread">Lectura amplia</option>
                       <option value="figure-page">Figura / Lámina</option>
+                      <option value="case-study">Caso aplicado</option>
+                      <option value="comparison-table">Tabla editorial</option>
+                      <option value="practice-lab">Práctica guiada</option>
+                      <option value="chapter-summary">Resumen capítulo</option>
                       <option value="worksheet">Worksheet</option>
                       <option value="appendix">Apéndice</option>
                       <option value="credits">Créditos</option>

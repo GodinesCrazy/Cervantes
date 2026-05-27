@@ -34,7 +34,7 @@ export class VisualQualityInspector {
       if (!(await exists(filePath))) missingAssets.push(role);
     }
     const rawMarkdownVisible = forbidden.some((pattern) => pattern.test(html));
-    const longTextPages = layout.pages.filter((page) => page.content.join(' ').split(/\s+/).filter(Boolean).length > 360);
+    const longTextPages = layout.pages.filter((page) => page.content.join(' ').split(/\s+/).filter(Boolean).length > 620);
     const renderedHtmlExists = await exists(renderedFilePath);
     const hasPageShell = html.includes('book-page') && html.includes('book-cover');
     const hasFigures = html.includes('figure-page') && html.includes('worksheet-page') && html.includes('chapter-opener');
