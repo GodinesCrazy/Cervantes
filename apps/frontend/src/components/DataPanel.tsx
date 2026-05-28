@@ -58,11 +58,7 @@ function DataRenderer({ data }: { data: unknown }) {
         {entries.map(([key, value]) => (
           <div key={key} className="dataField">
             <span className="dataLabel">{formatKey(key)}</span>
-            {typeof value === 'object' ? (
-              <DataRenderer data={value} />
-            ) : (
-              <span className="dataValue">{String(value)}</span>
-            )}
+            <DataRenderer data={value} />
           </div>
         ))}
       </div>

@@ -224,6 +224,42 @@ function normalizeClarificationQuestions(rawQuestions: unknown[], rawIdea: strin
   return normalized.slice(0, 5);
 }
 
+function normalizeIdeaText(value?: string | null) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+async function resetDownstreamForIdeaChange(projectId: number) {
+  await prisma.publicationReadiness.deleteMany({ where: { projectId } });
+  await prisma.exportPackage.deleteMany({ where: { projectId } });
+  await prisma.formatBuild.deleteMany({ where: { projectId } });
+  await prisma.publishingChecklist.deleteMany({ where: { projectId } });
+  await prisma.metadataPackage.deleteMany({ where: { projectId } });
+  await prisma.editorialLayout.deleteMany({ where: { projectId } });
+  await prisma.visualAsset.deleteMany({ where: { projectId } });
+  await prisma.recoveryReport.deleteMany({ where: { projectId } });
+  await prisma.auditReport.deleteMany({ where: { projectId } });
+  await prisma.blockVersion.deleteMany({ where: { block: { projectId } } });
+  await prisma.manuscriptBlock.deleteMany({ where: { projectId } });
+  await prisma.chapterPlan.deleteMany({ where: { projectId } });
+  await prisma.visualBible.deleteMany({ where: { projectId } });
+  await prisma.editorialBible.deleteMany({ where: { projectId } });
+  await prisma.editorialFormula.deleteMany({ where: { projectId } });
+  await prisma.languageOpportunity.deleteMany({ where: { projectId } });
+  await prisma.competitorBook.deleteMany({ where: { projectId } });
+  await prisma.marketResearch.deleteMany({ where: { projectId } });
+  await prisma.phaseGate.deleteMany({ where: { projectId, phase: { not: 'idea' } } });
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      name: 'Proyecto en análisis',
+      status: 'IDEA_DRAFT',
+      currentPhase: 'idea',
+      goNoGoScore: null,
+      goNoGoResult: null,
+    },
+  });
+}
+
 function textValue(value: unknown) {
   if (value === null || value === undefined) return undefined;
   if (Array.isArray(value)) return value.map((item) => String(item)).join(', ');
@@ -317,6 +353,33 @@ function normalizeSuggestedTitles(raw: unknown, recommendedTitle: string, topic:
     .slice(0, 5);
 
   return JSON.stringify(complete);
+}
+
+function hasDemoTopicLeak(value: unknown, ideaContext: string) {
+  const source = JSON.stringify(value || '').toLowerCase();
+  const idea = ideaContext.toLowerCase();
+  const demoTerms = ['runa', 'runas', 'runes', 'rúnico', 'runico'];
+  return !demoTerms.some((term) => idea.includes(term)) && demoTerms.some((term) => source.includes(term));
+}
+
+function fallbackLanguageScoresForTopic(topic: string, recommendedTitle?: string | null) {
+  const base = topic
+    .replace(/^un ebook premium sobre\s+/i, '')
+    .replace(/^ebook premium sobre\s+/i, '')
+    .replace(/^un ebook sobre\s+/i, '')
+    .replace(/^ebook sobre\s+/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  const label = base ? base.charAt(0).toUpperCase() + base.slice(1) : 'Guía visual premium';
+  const isDog = /\bperr|canin|mascota|dog\b/i.test(base);
+  const esTitle = recommendedTitle || (isDog ? 'Cuidado Canino Esencial: Guía Visual para Dueños Responsables' : `${label}: Guía Visual Premium`);
+  const enTitle = isDog ? 'Dog Care Made Clear' : `${label} Made Visual`;
+  const ptTitle = isDog ? 'Cuidados Caninos Visuais' : `${label} Visual Passo a Passo`;
+  return JSON.stringify([
+    { language: 'es', score: 84, market: 'Spanish-first digital publishing', naming: esTitle, reason: `Mejor fricción de producción y audiencia inicial clara para ${base || 'este tema'}.` },
+    { language: 'en', score: 76, market: 'English expansion', naming: enTitle, reason: 'Mayor mercado, más competencia; requiere adaptación de promesa y keywords.' },
+    { language: 'pt', score: 61, market: 'Portuguese expansion', naming: ptTitle, reason: 'Expansión futura si el producto valida en español.' },
+  ]);
 }
 
 function normalizeMetadataPackage(raw: Record<string, unknown>, projectName: string) {
@@ -1129,11 +1192,18 @@ router.put('/:id', async (req, res, next) => {
 router.post('/:id/idea', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
-    await projectOr404(projectId);
+    const project = await projectOr404(projectId);
+    const nextRawIdea = String(req.body.rawIdea || '');
+    const ideaChanged = Boolean(
+      project.idea?.rawIdea &&
+      nextRawIdea &&
+      normalizeIdeaText(project.idea.rawIdea) !== normalizeIdeaText(nextRawIdea),
+    );
+    if (ideaChanged) await resetDownstreamForIdeaChange(projectId);
     const idea = await prisma.ebookIdea.upsert({
       where: { projectId },
-      update: req.body,
-      create: { ...req.body, projectId, rawIdea: req.body.rawIdea || '' },
+      update: { ...req.body, topic: req.body.topic || nextRawIdea },
+      create: { ...req.body, projectId, rawIdea: nextRawIdea, topic: req.body.topic || nextRawIdea },
     });
     const questions = await clarificationQuestions(idea.rawIdea);
     await logAI(projectId, 'idea-intake', questions);
@@ -1227,6 +1297,17 @@ router.post('/:id/market-research', async (req, res, next) => {
         dataToSave[key] = String(dataToSave[key]);
       }
     }
+    if (hasDemoTopicLeak(dataToSave, ideaContext)) {
+      const fallbackTitles = JSON.parse(fallbackLanguageScoresForTopic(ideaContext, null));
+      dataToSave.recommendedTitle = fallbackTitles[0]?.naming || dataToSave.recommendedTitle;
+      dataToSave.niche = dataToSave.niche || ideaContext;
+      dataToSave.suggestedTitles = JSON.stringify([
+        { title: fallbackTitles[0]?.naming, language: 'es', market: 'Spanish-first digital publishing', adaptation: 'Recalculado para el tema actual; bloquea contenido heredado de otro proyecto.' },
+        { title: fallbackTitles[1]?.naming, language: 'en', market: 'English expansion', adaptation: 'Adaptación conceptual para expansión futura.' },
+        { title: fallbackTitles[2]?.naming, language: 'pt', market: 'Portuguese expansion', adaptation: 'Expansión localizada si valida el producto.' },
+      ]);
+      dataToSave.titleRationale = 'El sistema detectó contenido ajeno al tema actual y regeneró el naming con fallback editorial contextual.';
+    }
     const recommendedTitle = String(dataToSave.recommendedTitle || project.name || 'Titulo comercial pendiente');
     dataToSave.recommendedTitle = recommendedTitle;
     dataToSave.suggestedTitles = normalizeSuggestedTitles(dataToSave.suggestedTitles, recommendedTitle, ideaContext);
@@ -1293,6 +1374,14 @@ router.post('/:id/language-opportunity', async (req, res, next) => {
           ? JSON.stringify(rawData[key]) 
           : rawData[key];
       }
+    }
+
+    if (hasDemoTopicLeak(dataToSave, ideaContext)) {
+      dataToSave.recommendedPrimary = dataToSave.recommendedPrimary || 'es';
+      dataToSave.recommendedSecondary = dataToSave.recommendedSecondary || 'en';
+      dataToSave.analysis = `El análisis fue recalculado para el tema actual y se bloqueó contenido heredado de otro proyecto. El mercado español se prioriza como validación inicial para ${ideaContext}.`;
+      dataToSave.strategyNote = 'El naming y la expansión por idioma deben adaptarse al tema actual del proyecto, no reutilizar conceptos de proyectos anteriores.';
+      dataToSave.languageScores = fallbackLanguageScoresForTopic(ideaContext, project.marketResearch?.recommendedTitle);
     }
 
     await prisma.languageOpportunity.upsert({

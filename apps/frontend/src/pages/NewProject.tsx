@@ -4,11 +4,12 @@ import { api } from '../api/client';
 
 export function NewProject() {
   const navigate = useNavigate();
-  const [rawIdea, setRawIdea] = useState('Un ebook premium sobre runas para principiantes con enfoque práctico y visual.');
+  const [rawIdea, setRawIdea] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!rawIdea.trim()) return;
     setBusy(true);
     const project = await api.createProject({ name: 'Proyecto en análisis', rawIdea, topic: rawIdea, audience: 'Por definir', tone: 'Premium práctico' });
     navigate(`/projects/${project.id}/idea`);
@@ -25,7 +26,12 @@ export function NewProject() {
       <form className="form" onSubmit={submit}>
         <label>
           Idea base
-          <textarea rows={8} value={rawIdea} onChange={(event) => setRawIdea(event.target.value)} />
+          <textarea
+            rows={8}
+            value={rawIdea}
+            onChange={(event) => setRawIdea(event.target.value)}
+            placeholder="Ejemplo: Un ebook premium sobre el cuidado integral de perros para dueños primerizos, con ejercicios, checklist y enfoque visual."
+          />
         </label>
         <p className="muted">
           El nombre comercial se recomendará después de la investigación de mercado, con alternativas y justificación.

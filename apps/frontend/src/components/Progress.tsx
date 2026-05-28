@@ -30,8 +30,13 @@ type Props = {
 export function Progress({ projectId, currentPhase, phaseGates = [] }: Props) {
   const index = Math.max(0, phases.findIndex((phase) => phase.key === currentPhase));
   const gateByPhase = new Map(phaseGates.map((gate) => [gate.phase, gate.status]));
-  const completed = phases.filter((phase) => gateByPhase.get(phase.gateKey || phase.key) === 'APPROVED').length;
-  const percent = Math.round((completed / phases.length) * 100);
+  const progressUnits = phases.reduce((total, phase) => {
+    const status = gateByPhase.get(phase.gateKey || phase.key);
+    if (status === 'APPROVED') return total + 1;
+    if (status === 'GENERATED') return total + 0.45;
+    return total;
+  }, 0);
+  const percent = Math.round((progressUnits / phases.length) * 100);
 
   return (
     <aside className="sidebar">

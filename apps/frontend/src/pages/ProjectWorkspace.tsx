@@ -132,7 +132,7 @@ export function IdeaPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      await api.saveIdea(project.id, { rawIdea, topic: project.name });
+      await api.saveIdea(project.id, { rawIdea, topic: rawIdea });
       await refresh();
       showToast('Idea actualizada', 'success');
     } catch (error) {

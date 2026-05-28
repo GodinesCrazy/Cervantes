@@ -2,6 +2,54 @@ import { AIService } from '../ai/aiService';
 
 const ai = new AIService();
 
+function cleanTopic(rawTopic: string) {
+  const normalized = (rawTopic || 'ebook premium')
+    .replace(/^un ebook premium sobre\s+/i, '')
+    .replace(/^ebook premium sobre\s+/i, '')
+    .replace(/^un ebook sobre\s+/i, '')
+    .replace(/^ebook sobre\s+/i, '')
+    .replace(/[.]+$/g, '')
+    .trim();
+  return normalized || 'metodo editorial';
+}
+
+function titleCase(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function topicNaming(topic: string) {
+  const coreTopic = cleanTopic(topic);
+  const displayTopic = titleCase(coreTopic);
+  const isRunes = /\bruna|runas|runes?\b/i.test(coreTopic);
+  const isDog = /\bperr|canin|mascota|dog\b/i.test(coreTopic);
+  const spanishTitle = isRunes
+    ? 'Runas Esenciales: Método Visual para Principiantes'
+    : isDog
+      ? 'Cuidado Canino Esencial: Guía Visual para Dueños Responsables'
+      : `${displayTopic}: Guía Visual Premium`;
+  const evocativeTitle = isRunes
+    ? 'El Camino de las Runas'
+    : isDog
+      ? 'El Camino del Cuidado Canino'
+      : `El Camino de ${displayTopic}`;
+  const stepTitle = isRunes
+    ? 'Runas Paso a Paso'
+    : isDog
+      ? 'Cuida Mejor a Tu Perro'
+      : `${displayTopic} Paso a Paso`;
+  const englishTitle = isRunes
+    ? 'Runes Made Visual'
+    : isDog
+      ? 'Dog Care Made Clear'
+      : `${displayTopic} Made Visual`;
+  const portugueseTitle = isRunes
+    ? 'Runas Visuais Passo a Passo'
+    : isDog
+      ? 'Cuidados Caninos Visuais'
+      : `${displayTopic} Visual Passo a Passo`;
+  return { coreTopic, displayTopic, spanishTitle, evocativeTitle, stepTitle, englishTitle, portugueseTitle };
+}
+
 export const pipelinePhases = [
   'idea',
   'research',
@@ -30,16 +78,8 @@ export async function clarificationQuestions(rawIdea: string) {
 }
 
 export async function marketResearchTemplate(topic = 'ebook premium') {
-  const normalized = topic
-    .toLowerCase()
-    .replace(/^un ebook premium sobre\s+/i, '')
-    .replace(/^ebook premium sobre\s+/i, '')
-    .replace(/\.$/, '');
-  const extracted = normalized.match(/sobre ([^,.]+?)( para | con |$)/)?.[1] || normalized.match(/^([^,.]+?)( para | con |$)/)?.[1] || normalized;
-  const coreTopic = extracted.trim() || 'metodo editorial';
-  const displayTopic = coreTopic.charAt(0).toUpperCase() + coreTopic.slice(1);
-  const recommendedTitle =
-    coreTopic.includes('runa') ? 'Runas Esenciales: Método Visual para Principiantes' : `${displayTopic}: Método Visual Premium`;
+  const { coreTopic, displayTopic, spanishTitle, evocativeTitle, stepTitle, englishTitle } = topicNaming(topic);
+  const recommendedTitle = spanishTitle;
   return ai.generate({
     niche: coreTopic,
     audience: 'Lectores que buscan una guía práctica, clara y visualmente cuidada.',
@@ -56,21 +96,21 @@ export async function marketResearchTemplate(topic = 'ebook premium') {
         promise: 'Equilibra claridad SEO, promesa visual y posicionamiento premium.',
       },
       {
-        title: coreTopic.includes('runa') ? 'El Camino de las Runas' : `El Camino de ${displayTopic}`,
+        title: evocativeTitle,
         language: 'es',
         market: 'Spanish premium niche',
         adaptation: 'Mas evocador para portada y branding, menos directo para busqueda.',
         promise: 'Tiene tono editorial memorable y funciona bien para portada.',
       },
       {
-        title: coreTopic.includes('runa') ? 'Runas Paso a Paso' : `${displayTopic} Paso a Paso`,
+        title: stepTitle,
         language: 'es',
         market: 'Spanish beginner SEO',
         adaptation: 'Adaptado a busqueda de principiantes y marketplaces.',
         promise: 'Prioriza claridad para principiantes y buen encaje en marketplaces.',
       },
       {
-        title: coreTopic.includes('runa') ? 'Runes Made Visual' : `${displayTopic} Made Visual`,
+        title: englishTitle,
         language: 'en',
         market: 'English expansion',
         adaptation: 'Titulo conceptual para expansion; se adapta al beneficio visual del mercado ingles.',
@@ -90,6 +130,7 @@ export async function marketResearchTemplate(topic = 'ebook premium') {
 }
 
 export async function languageTemplate(topic: string) {
+  const { spanishTitle, englishTitle, portugueseTitle, coreTopic } = topicNaming(topic);
   return ai.generate({
     recommendedPrimary: 'es',
     recommendedSecondary: 'en',
@@ -98,9 +139,9 @@ export async function languageTemplate(topic: string) {
     analysis:
       'El mercado espanol gana para MVP por menor friccion de produccion y mejor control editorial inicial. Ingles queda como expansion de mayor techo, con naming localizado.',
     languageScores: JSON.stringify([
-      { language: 'es', score: 84, market: 'Spanish-first digital publishing', naming: 'Runas Esenciales: Metodo Visual para Principiantes', reason: 'Menor friccion de produccion y audiencia inicial clara.' },
-      { language: 'en', score: 76, market: 'English expansion', naming: 'Runes Made Visual', reason: 'Mayor mercado, mas competencia; requiere adaptacion de promesa y keywords.' },
-      { language: 'pt', score: 61, market: 'Portuguese expansion', naming: 'Runas Visuais Passo a Passo', reason: 'Buena expansion futura.' },
+      { language: 'es', score: 84, market: 'Spanish-first digital publishing', naming: spanishTitle, reason: `Menor friccion de produccion y audiencia inicial clara para ${coreTopic}.` },
+      { language: 'en', score: 76, market: 'English expansion', naming: englishTitle, reason: 'Mayor mercado, mas competencia; requiere adaptacion de promesa y keywords.' },
+      { language: 'pt', score: 61, market: 'Portuguese expansion', naming: portugueseTitle, reason: 'Buena expansion futura si el producto valida en español.' },
     ]),
   }, { 
     engine: 'language-opportunity', 
