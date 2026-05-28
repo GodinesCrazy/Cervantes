@@ -27,6 +27,10 @@ function titleLines(title: string, x: number, y: number, maxChars = 22, lineHeig
     .join('');
 }
 
+function isPetCare(theme: EditorialTheme, text = '') {
+  return theme.key === 'pet-care-premium' || /(perr|canin|mascota|veterin|dog|pet)/i.test(text);
+}
+
 export class EditorialAssetEngine {
   constructor(private readonly exportDir: string) {}
 
@@ -67,6 +71,7 @@ export class EditorialAssetEngine {
   }
 
   private cover(title: string, subtitle: string, theme: EditorialTheme) {
+    if (isPetCare(theme, `${title} ${subtitle}`)) return this.petCareCover(title, subtitle, theme);
     const extra = `<radialGradient id="glow" cx="50%" cy="28%" r="58%"><stop stop-color="${theme.colors.gold}" stop-opacity=".34"/><stop offset=".62" stop-color="${theme.colors.accent}" stop-opacity=".12"/><stop offset="1" stop-color="${theme.colors.dark}" stop-opacity="0"/></radialGradient><linearGradient id="coverBg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${theme.colors.dark}"/><stop offset=".55" stop-color="#162121"/><stop offset="1" stop-color="${theme.colors.accent}"/></linearGradient>`;
     const starField = Array.from({ length: 42 }, (_, index) => {
       const x = 170 + ((index * 97) % 1260);
@@ -81,11 +86,13 @@ export class EditorialAssetEngine {
   }
 
   private chapterOpener(title: string, theme: EditorialTheme) {
+    if (isPetCare(theme, title)) return this.petCareChapterOpener(title, theme);
     const body = `<rect width="1200" height="760" fill="${theme.colors.dark}"/><rect width="1200" height="760" filter="url(#ink)"/><rect x="42" y="42" width="1116" height="676" fill="none" stroke="${theme.colors.gold}" stroke-width="5"/><rect x="72" y="72" width="1056" height="616" fill="none" stroke="${theme.colors.paper}" stroke-opacity=".16"/><g stroke="${theme.colors.gold}" fill="none" opacity=".9"><circle cx="930" cy="260" r="122"/><circle cx="930" cy="260" r="70" opacity=".35"/><path d="M900 160 C820 288 870 428 1006 474"/><path d="M150 570 H1040"/><path d="M190 600 H1000"/><path d="M580 142 C660 96 750 96 830 142"/></g><g fill="${theme.colors.gold}" opacity=".55">${Array.from({ length: 18 }, (_, i) => `<circle cx="${170 + i * 52}" cy="${455 + (i % 3) * 18}" r="${2 + (i % 2)}"/>`).join('')}</g><text x="120" y="170" fill="${theme.colors.gold}" font-family="Arial" font-size="28" letter-spacing="5">CAPITULO</text><text x="120" y="280" fill="${theme.colors.paper}" font-family="Georgia" font-size="58">${escapeSvg(title).slice(0, 34)}</text><text x="120" y="348" fill="${theme.colors.paper}" font-family="Georgia" font-size="32" opacity=".75">Apertura editorial visual</text><text x="120" y="650" fill="${theme.colors.gold}" font-family="Arial" font-size="18" letter-spacing="4">LECTURA · METODO · PRACTICA</text>`;
     return this.svgShell(theme, 1200, 760, body);
   }
 
   private figureMap(theme: EditorialTheme) {
+    if (isPetCare(theme)) return this.petCareFigureMap(theme);
     const nodes = [
       [210, 170, theme.colors.accent, 'Observa', 'senales'],
       [990, 170, theme.colors.accent2, 'Prioriza', 'riesgo'],
@@ -97,18 +104,22 @@ export class EditorialAssetEngine {
   }
 
   private separator(theme: EditorialTheme) {
+    if (isPetCare(theme)) {
+      const body = `<rect width="1200" height="160" fill="none"/><path d="M115 80 H485 M715 80 H1085" stroke="${theme.colors.gold}" stroke-width="4"/><g transform="translate(540 35)"><circle cx="60" cy="45" r="34" fill="${theme.colors.paperAlt}" stroke="${theme.colors.gold}" stroke-width="4"/><circle cx="38" cy="28" r="11" fill="${theme.colors.accent}"/><circle cx="60" cy="18" r="12" fill="${theme.colors.accent}"/><circle cx="82" cy="28" r="11" fill="${theme.colors.accent}"/><ellipse cx="60" cy="58" rx="28" ry="21" fill="${theme.colors.accent2}" opacity=".88"/></g><text x="600" y="138" text-anchor="middle" font-family="Arial" font-size="17" fill="${theme.colors.muted}">cuidado · rutina · bienestar</text>`;
+      return this.svgShell(theme, 1200, 160, body);
+    }
     const body = `<rect width="1200" height="160" fill="none"/><path d="M120 80 H1080" stroke="${theme.colors.gold}" stroke-width="4"/><circle cx="600" cy="80" r="22" fill="${theme.colors.dark}" stroke="${theme.colors.gold}" stroke-width="4"/><path d="M570 80 C585 50 615 50 630 80 C615 110 585 110 570 80Z" fill="${theme.colors.gold}" opacity=".75"/>`;
     return this.svgShell(theme, 1200, 160, body);
   }
 
   private icons(theme: EditorialTheme) {
-    const labels = ['Idea', 'Metodo', 'Accion', 'Revision'];
+    const labels = isPetCare(theme) ? ['Salud', 'Rutina', 'Alimento', 'Juego'] : ['Idea', 'Metodo', 'Accion', 'Revision'];
     const body = `<rect width="1200" height="240" fill="${theme.colors.dark}"/>${labels.map((label, index) => `<g transform="translate(${150 + index * 290} 55)"><circle cx="55" cy="55" r="45" fill="none" stroke="${theme.colors.gold}" stroke-width="5"/><path d="M30 58 H80 M55 30 V82" stroke="${index % 2 ? theme.colors.accent2 : theme.colors.accent}" stroke-width="6"/><text x="55" y="145" text-anchor="middle" fill="${theme.colors.paper}" font-family="Arial" font-size="24">${label}</text></g>`).join('')}`;
     return this.svgShell(theme, 1200, 240, body);
   }
 
   private worksheet(theme: EditorialTheme) {
-    const rows = ['Accion', 'Criterio', 'Fecha', 'Resultado'];
+    const rows = isPetCare(theme) ? ['Vacunas y control', 'Alimentacion', 'Paseos y juego', 'Higiene y señales'] : ['Accion', 'Criterio', 'Fecha', 'Resultado'];
     const body = `<rect width="1000" height="720" fill="${theme.colors.paperAlt}"/><rect x="64" y="52" width="872" height="616" fill="#fff" stroke="${theme.colors.gold}" stroke-width="5"/><rect x="92" y="82" width="816" height="556" fill="none" stroke="${theme.colors.ink}" stroke-opacity=".16"/><text x="130" y="135" font-family="Georgia" font-size="38" fill="${theme.colors.ink}">Worksheet editorial</text><text x="132" y="166" font-family="Arial" font-size="16" fill="${theme.colors.muted}">Hoja aplicable para convertir lectura en decision revisable</text>${rows.map((row, index) => `<g transform="translate(130 ${215 + index * 82})"><rect width="24" height="24" fill="none" stroke="${theme.colors.accent}" stroke-width="4"/><text x="42" y="21" font-family="Arial" font-size="21" fill="${theme.colors.ink}">${row}</text><line x1="180" y1="15" x2="690" y2="15" stroke="${index === 3 ? theme.colors.accent2 : theme.colors.muted}" stroke-width="3"/><line x1="180" y1="39" x2="690" y2="39" stroke="${theme.colors.muted}" stroke-opacity=".35" stroke-width="2"/></g>`).join('')}<g transform="translate(130 570)"><rect width="700" height="44" fill="${theme.colors.dark}" opacity=".92"/><text x="24" y="29" fill="${theme.colors.paper}" font-family="Arial" font-size="17">Criterio final: si no puedes medirlo, conviertelo en una accion mas pequena.</text></g><rect x="130" y="628" width="220" height="10" fill="${theme.colors.gold}"/><rect x="370" y="628" width="110" height="10" fill="${theme.colors.accent}"/><rect x="500" y="628" width="160" height="10" fill="${theme.colors.accent2}"/>`;
     return this.svgShell(theme, 1000, 720, body);
   }
@@ -116,5 +127,29 @@ export class EditorialAssetEngine {
   private mockup(theme: EditorialTheme) {
     const body = `<rect width="1000" height="620" fill="${theme.colors.paperAlt}"/><ellipse cx="500" cy="520" rx="260" ry="42" fill="#000" opacity=".14"/><path d="M350 140 L548 100 L548 470 L350 510 Z" fill="${theme.colors.accent}"/><path d="M548 100 L650 170 L650 520 L548 470 Z" fill="${theme.colors.gold}"/><rect x="390" y="200" width="110" height="12" fill="${theme.colors.paper}"/><rect x="390" y="232" width="85" height="8" fill="${theme.colors.paper}"/><circle cx="450" cy="335" r="54" fill="none" stroke="${theme.colors.accent2}" stroke-width="12"/><text x="500" y="575" text-anchor="middle" font-family="Georgia" font-size="30" fill="${theme.colors.ink}">Mockup comercial premium</text>`;
     return this.svgShell(theme, 1000, 620, body);
+  }
+
+  private petCareCover(title: string, subtitle: string, theme: EditorialTheme) {
+    const extra = `<linearGradient id="coverBg" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#123636"/><stop offset=".58" stop-color="#2f7b78"/><stop offset="1" stop-color="#f2dfb4"/></linearGradient><radialGradient id="warm" cx="70%" cy="22%" r="54%"><stop stop-color="#fff4d2" stop-opacity=".65"/><stop offset=".78" stop-color="#fff4d2" stop-opacity="0"/></radialGradient>`;
+    const dog = `<g transform="translate(490 455)" filter="url(#shadow)"><path d="M92 280 C52 238 38 178 62 126 C82 82 134 60 190 76 C234 36 304 36 350 78 C414 64 470 102 492 160 C516 224 478 286 424 314 C362 360 176 358 92 280Z" fill="${theme.colors.paperAlt}"/><path d="M166 78 C128 35 94 30 78 46 C58 66 80 122 112 150Z" fill="${theme.colors.accent2}"/><path d="M378 82 C420 38 458 34 474 54 C492 78 462 128 426 154Z" fill="${theme.colors.accent2}"/><circle cx="222" cy="176" r="18" fill="${theme.colors.dark}"/><circle cx="354" cy="176" r="18" fill="${theme.colors.dark}"/><path d="M286 200 C270 216 274 238 296 242 C318 238 324 216 306 200Z" fill="${theme.colors.dark}"/><path d="M296 242 C286 280 236 286 218 258 M296 242 C310 282 360 286 380 258" fill="none" stroke="${theme.colors.dark}" stroke-width="8" stroke-linecap="round"/><path d="M118 326 H462" stroke="${theme.colors.gold}" stroke-width="10" stroke-linecap="round"/><circle cx="292" cy="340" r="38" fill="${theme.colors.gold}"/><path d="M274 342 H310 M292 324 V360" stroke="${theme.colors.dark}" stroke-width="8" stroke-linecap="round"/></g>`;
+    const checklist = `<g transform="translate(318 1645)" filter="url(#shadow)"><rect width="964" height="265" rx="0" fill="${theme.colors.paperAlt}" opacity=".96"/><rect x="28" y="28" width="908" height="209" fill="none" stroke="${theme.colors.gold}" stroke-width="3"/><text x="76" y="88" fill="${theme.colors.dark}" font-family="Arial" font-size="30" font-weight="700">Guia practica de cuidado responsable</text>${['Salud preventiva', 'Rutinas simples', 'Señales de alerta'].map((item, i) => `<g transform="translate(82 ${125 + i * 42})"><rect width="22" height="22" fill="none" stroke="${theme.colors.accent}" stroke-width="4"/><path d="M5 12 L10 18 L21 4" fill="none" stroke="${theme.colors.accent2}" stroke-width="4"/><text x="42" y="20" fill="${theme.colors.dark}" font-family="Arial" font-size="22">${item}</text></g>`).join('')}</g>`;
+    const body = `<rect width="1600" height="2400" fill="url(#coverBg)"/><rect width="1600" height="2400" fill="url(#warm)"/><rect width="1600" height="2400" filter="url(#ink)" opacity=".42"/><rect x="108" y="108" width="1384" height="2184" fill="none" stroke="${theme.colors.paperAlt}" stroke-opacity=".78" stroke-width="7"/><rect x="156" y="156" width="1288" height="2088" fill="none" stroke="${theme.colors.gold}" stroke-width="4"/>${dog}<text x="800" y="1020" text-anchor="middle" fill="${theme.colors.paperAlt}" font-family="Arial" font-size="28" letter-spacing="5">EDICION PREMIUM PARA DUEÑOS</text><g fill="${theme.colors.paperAlt}" font-family="Georgia" font-size="82" font-weight="700">${titleLines(title, 800, 1155, 24, 92)}</g><path d="M430 1510 H1170" stroke="${theme.colors.gold}" stroke-width="5"/><text x="800" y="1584" text-anchor="middle" fill="${theme.colors.paperAlt}" font-family="Georgia" font-size="34">${escapeSvg(subtitle).slice(0, 82)}</text>${checklist}<text x="800" y="2195" text-anchor="middle" fill="${theme.colors.paperAlt}" font-family="Arial" font-size="24" opacity=".78">bienestar · salud · rutina diaria · vínculo</text>`;
+    return this.svgShell(theme, 1600, 2400, body, extra);
+  }
+
+  private petCareChapterOpener(title: string, theme: EditorialTheme) {
+    const body = `<rect width="1200" height="760" fill="${theme.colors.paperAlt}"/><rect x="44" y="44" width="1112" height="672" fill="#fffaf0" stroke="${theme.colors.line}" stroke-width="3"/><rect x="88" y="92" width="545" height="520" fill="${theme.colors.dark}"/><g transform="translate(180 192)"><circle cx="155" cy="120" r="92" fill="${theme.colors.paperAlt}"/><circle cx="120" cy="96" r="13" fill="${theme.colors.dark}"/><circle cx="188" cy="96" r="13" fill="${theme.colors.dark}"/><path d="M154 118 C142 130 146 146 160 148 C176 146 178 130 164 118Z" fill="${theme.colors.dark}"/><path d="M160 148 C150 174 118 176 106 158 M160 148 C172 174 204 176 216 158" fill="none" stroke="${theme.colors.dark}" stroke-width="6" stroke-linecap="round"/><path d="M80 82 C38 40 24 44 32 98 C42 140 70 140 94 118Z" fill="${theme.colors.accent2}"/><path d="M228 82 C270 40 284 44 276 98 C266 140 238 140 214 118Z" fill="${theme.colors.accent2}"/></g><path d="M132 548 H590" stroke="${theme.colors.gold}" stroke-width="6"/><text x="700" y="180" fill="${theme.colors.gold}" font-family="Arial" font-size="24" letter-spacing="5">CAPITULO</text><text x="700" y="270" fill="${theme.colors.ink}" font-family="Georgia" font-size="56">${escapeSvg(title).slice(0, 34)}</text><text x="700" y="338" fill="${theme.colors.muted}" font-family="Arial" font-size="24">Guia clara para tomar mejores decisiones de cuidado.</text><g transform="translate(700 450)">${['Observa señales', 'Aplica rutinas', 'Consulta a tiempo'].map((item, i) => `<g transform="translate(0 ${i * 58})"><circle cx="18" cy="18" r="16" fill="${i === 1 ? theme.colors.gold : theme.colors.accent}"/><text x="52" y="26" fill="${theme.colors.ink}" font-family="Arial" font-size="23">${item}</text></g>`).join('')}</g>`;
+    return this.svgShell(theme, 1200, 760, body);
+  }
+
+  private petCareFigureMap(theme: EditorialTheme) {
+    const nodes = [
+      [250, 190, theme.colors.accent, 'Salud', 'vacunas y controles'],
+      [950, 190, theme.colors.accent2, 'Rutina', 'paseos y descanso'],
+      [250, 540, theme.colors.gold, 'Nutricion', 'porciones y agua'],
+      [950, 540, '#4f7467', 'Alertas', 'senales tempranas'],
+    ];
+    const body = `<rect width="1200" height="720" fill="${theme.colors.paperAlt}"/><rect x="46" y="42" width="1108" height="636" fill="#fffaf0" stroke="${theme.colors.gold}" stroke-width="4"/><text x="82" y="100" font-family="Georgia" font-size="42" fill="${theme.colors.ink}">Mapa de cuidado canino responsable</text><text x="84" y="138" font-family="Arial" font-size="18" fill="${theme.colors.muted}">Un sistema simple para organizar salud, rutina y bienestar diario.</text><g transform="translate(506 250)" filter="url(#shadow)"><circle cx="94" cy="94" r="92" fill="${theme.colors.dark}"/><circle cx="94" cy="94" r="68" fill="none" stroke="${theme.colors.gold}" stroke-width="5"/><circle cx="72" cy="76" r="9" fill="${theme.colors.paperAlt}"/><circle cx="116" cy="76" r="9" fill="${theme.colors.paperAlt}"/><path d="M94 92 C82 104 86 118 100 120 C112 118 114 104 102 92Z" fill="${theme.colors.paperAlt}"/><text x="94" y="226" text-anchor="middle" fill="${theme.colors.ink}" font-family="Arial" font-size="18">bienestar</text></g><g fill="none" stroke-width="6"><path d="M510 320 C420 278 350 230 250 190" stroke="${theme.colors.accent}"/><path d="M690 320 C780 278 850 230 950 190" stroke="${theme.colors.accent2}"/><path d="M510 425 C410 474 350 515 250 540" stroke="${theme.colors.gold}"/><path d="M690 425 C790 474 850 515 950 540" stroke="#4f7467"/></g>${nodes.map(([x, y, color, label, sub]) => `<g filter="url(#shadow)"><rect x="${Number(x) - 142}" y="${Number(y) - 60}" width="284" height="120" fill="${color}"/><text x="${x}" y="${Number(y) - 8}" text-anchor="middle" fill="${color === theme.colors.gold ? theme.colors.ink : '#fff'}" font-family="Arial" font-size="25" font-weight="700">${label}</text><text x="${x}" y="${Number(y) + 27}" text-anchor="middle" fill="${color === theme.colors.gold ? theme.colors.ink : '#fff'}" font-family="Arial" font-size="15" opacity=".86">${sub}</text></g>`).join('')}<text x="600" y="662" text-anchor="middle" fill="${theme.colors.muted}" font-family="Arial" font-size="16">Observa · registra · ajusta · consulta con profesionales cuando corresponda</text>`;
+    return this.svgShell(theme, 1200, 720, body);
   }
 }

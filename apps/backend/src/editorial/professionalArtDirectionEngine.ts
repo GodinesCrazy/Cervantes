@@ -29,14 +29,19 @@ export class ProfessionalArtDirectionEngine {
     ]
       .filter(Boolean)
       .join(' ');
-    const styleKey = preferredStyle || EditorialThemeEngine.recommend(source, project.visualBible?.artDirection);
+    const recommendedStyle = EditorialThemeEngine.recommend(source, project.visualBible?.artDirection);
+    const preferredLooksUnsafe =
+      preferredStyle === 'mystic-antique' &&
+      recommendedStyle !== 'mystic-antique' &&
+      !/(runa|luna|tarot|astrolog|mist|ritual|espiritual)/i.test(source);
+    const styleKey = preferredLooksUnsafe ? recommendedStyle : preferredStyle || recommendedStyle;
     const theme = EditorialThemeEngine.styleByKey(styleKey);
     const audience = project.marketResearch?.audience || 'Lectores que buscan una guía clara, visual y editorialmente cuidada.';
     return {
       status: 'APPROVED',
       styleKey: theme.key,
       theme,
-      rationale: `Estilo ${theme.key} seleccionado por encaje entre nicho, promesa visual, audiencia y mercado.`,
+      rationale: `Estilo ${theme.key} seleccionado por encaje entre nicho, promesa visual, audiencia y mercado. Se evita reutilizar estilos incompatibles de proyectos anteriores.`,
       audience,
       marketLanguage: project.marketResearch?.language || project.idea?.baseLanguage || 'es',
       designPrinciples: [

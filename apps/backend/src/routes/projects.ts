@@ -1243,6 +1243,8 @@ router.post('/:id/clarifications', async (req, res, next) => {
         data: { answer: String(item.answer || '') },
       });
     }
+    await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'research' } });
+    await upsertGate(projectId, 'idea', 'APPROVED', 'Idea y brief inicial aprobados con respuestas del usuario.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);

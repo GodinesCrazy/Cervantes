@@ -9,7 +9,8 @@ export type EditorialTheme = {
     | 'modern-clean'
     | 'dark-luxury'
     | 'educational-clear'
-    | 'technical-professional';
+    | 'technical-professional'
+    | 'pet-care-premium';
   colors: {
     ink: string;
     muted: string;
@@ -74,6 +75,26 @@ export class EditorialThemeEngine {
     const base = EditorialThemeEngine.defaultTheme();
     return [
       base,
+      {
+        ...base,
+        key: 'pet-care-premium',
+        variant: 'pet-care-premium',
+        colors: {
+          ...base.colors,
+          ink: '#172322',
+          muted: '#5a6862',
+          paper: '#eef4ee',
+          paperAlt: '#fffdf5',
+          dark: '#163332',
+          gold: '#d6a93a',
+          accent: '#2f7b78',
+          accent2: '#d9784a',
+          line: '#bed5ca',
+        },
+        typography: { ...base.typography, body: 'Inter, Arial, sans-serif' },
+        density: 'visual',
+        ornament: 'minimal',
+      },
       {
         ...base,
         key: 'mystic-antique',
@@ -197,6 +218,7 @@ export class EditorialThemeEngine {
 
   static recommend(topic?: string | null, visualConcept?: string | null) {
     const source = `${topic || ''} ${visualConcept || ''}`.toLowerCase();
+    if (/(perr|canin|mascota|veterin|pet care|dog care|dog\b|cachorro)/i.test(source)) return 'pet-care-premium';
     if (/(runa|luna|tarot|astrolog|mist|ritual|espiritual)/i.test(source)) return 'mystic-antique';
     if (/(tecnico|software|programacion|datos|finanzas|sistema)/i.test(source)) return 'technical-professional';
     if (/(educacion|curso|estudiante|aprender|guia)/i.test(source)) return 'educational-clear';

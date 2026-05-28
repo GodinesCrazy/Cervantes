@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { chapterPlanTemplate, clarificationQuestions, languageTemplate, marketResearchTemplate } from './templates';
+import { EditorialThemeEngine } from '../editorial/themeEngine';
 
 describe('template engines', () => {
   it('generates clarification questions', async () => {
@@ -26,5 +27,9 @@ describe('template engines', () => {
     expect(serialized).toContain('perro');
     expect(serialized).not.toContain('runa');
     expect(serialized).not.toContain('runes');
+  });
+
+  it('recommends pet-care art direction for canine guides', () => {
+    expect(EditorialThemeEngine.recommend('Guia premium para el cuidado canino y salud de perros')).toBe('pet-care-premium');
   });
 });

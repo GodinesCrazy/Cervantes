@@ -298,11 +298,88 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
           onRun={run}
           onApprove={approve}
         />
+      ) : phaseKey === 'research' ? (
+        <ResearchResult data={project.marketResearch as Record<string, unknown> | null | undefined} />
       ) : (
         <DataPanel title="Resultado" data={project[config.panel]} />
       )}
     </>
   );
+}
+
+function ResearchResult({ data }: { data?: Record<string, unknown> | null }) {
+  if (!data) return <DataPanel title="Resultado" data={data} />;
+  const titles = parseMaybeArray(data.suggestedTitles);
+  const keywords = parseMaybeArray(data.keywords);
+  const sources = parseMaybeArray(data.sourceNotes);
+  return (
+    <section className="researchResult">
+      <div className="researchHero">
+        <div>
+          <span className="eyebrow">Nombre recomendado</span>
+          <h2>{String(data.recommendedTitle || 'Título pendiente')}</h2>
+          <p>{String(data.summary || data.commercialPromise || 'La app recomienda el posicionamiento después de evaluar mercado y promesa.')}</p>
+        </div>
+        <div className="researchScore">
+          <span>Oportunidad</span>
+          <strong>{String(data.opportunityScore || '-')}</strong>
+          <small>{String(data.riskLevel || 'Riesgo por revisar')}</small>
+        </div>
+      </div>
+      <div className="researchCompactGrid">
+        <div>
+          <span>Nicho</span>
+          <strong>{String(data.niche || '-')}</strong>
+        </div>
+        <div>
+          <span>Audiencia</span>
+          <strong>{String(data.audience || '-')}</strong>
+        </div>
+        <div>
+          <span>Idioma</span>
+          <strong>{String(data.language || '-')}</strong>
+        </div>
+        <div>
+          <span>Saturación</span>
+          <strong>{String(data.saturationLevel || '-')}</strong>
+        </div>
+      </div>
+      {titles.length > 0 && (
+        <div className="researchTitleList">
+          <h2>Alternativas comerciales</h2>
+          {titles.slice(0, 5).map((item, index) => {
+            const entry = item as Record<string, unknown>;
+            return (
+              <article key={`${entry.title || index}`}>
+                <strong>{String(entry.title || item)}</strong>
+                <span>{String(entry.market || entry.language || 'Mercado principal')}</span>
+                <p>{String(entry.adaptation || entry.promise || entry.rationale || '')}</p>
+              </article>
+            );
+          })}
+        </div>
+      )}
+      <details className="technicalDetails">
+        <summary>Ver investigación completa</summary>
+        <div className="researchDetailsGrid">
+          <DataPanel title="Keywords" data={keywords.length ? keywords : data.keywords} />
+          <DataPanel title="Fuentes y notas" data={sources.length ? sources : data.sourceNotes} />
+          <DataPanel title="Reporte completo" data={data.fullReport || data.titleRationale || data} />
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function parseMaybeArray(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
 }
 
 function RecoveryResult({
@@ -1317,6 +1394,9 @@ export function PreviewPage() {
                    <span className="quality-note">{selectedPage.qualityNote || 'Pendiente de revisión visual'}</span>
                  </div>
                  <div className="actions">
+                    <a className="button primary" href={`/api/projects/${project.id}/preview.pdf`} target="_blank" rel="noreferrer">
+                      Descargar PDF
+                    </a>
                     <select value={selectedPage.type} onChange={e => changeTemplate(selectedPage.id, e.target.value)}>
                       <option value="cover">Portada</option>
                       <option value="title">Portadilla</option>
