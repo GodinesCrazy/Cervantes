@@ -7,6 +7,8 @@ import puppeteer from 'puppeteer';
 import { prisma } from '../prisma';
 import { EditorialLayoutService } from '../editorial/editorialLayoutService';
 import { inspectManuscript, validateGumroadPackage, validateKdpPackage } from '../services/qualityService';
+import { validateFinalExportReadiness } from '../services/validators/finalExportQualityGate';
+import { sanitizeHtmlContent } from '../services/validators/contentSanitizer';
 
 const root = path.resolve(__dirname, '../../../..');
 const exportDir = path.join(root, 'storage', 'exports');
@@ -217,8 +219,10 @@ export class ExportService {
       @page{size:A4;margin:0}
       :root{--ink:#191714;--muted:#675f51;--gold:#b79236;--teal:#2f6e6d;--paper:#f3ead8;--paper2:#fbf7ed;--line:#c8b98d}
       *{box-sizing:border-box}
-      body{margin:0;background:#171717;color:var(--ink);font-family:Georgia,"Times New Roman",serif;line-height:1.55}
-      .book-cover,.book-page{position:relative;width:210mm;min-height:297mm;margin:0 auto 16px;background:var(--paper2);box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;break-after:page}
+      body{margin:0;background:#171717;color:var(--ink);font-family:Georgia,"Times New Roman",serif;line-height:1.6}
+      /* Removed min-height to allow flexible page length and let Puppeteer handle natural page breaks. */
+      .book-cover,.book-page{position:relative;width:210mm;margin:0 auto;background:var(--paper2);overflow:hidden;break-after:page}
+      /* Set a minimum height for visual pages only, allowing text pages to pack better */
       .book-page{padding:25mm 24mm 22mm;background:radial-gradient(circle at 20% 12%,rgba(255,255,255,.9),rgba(255,255,255,0) 32%),linear-gradient(90deg,rgba(0,0,0,.045),transparent 24mm),var(--paper)}
       .book-page:before{content:"";position:absolute;inset:9mm;border:1px solid rgba(183,146,54,.45);pointer-events:none}
       .book-page:after{content:"Cervantes";position:absolute;top:10mm;left:24mm;right:24mm;border-bottom:1px solid rgba(25,23,20,.22);padding-bottom:3mm;text-align:center;font:11px Arial,sans-serif;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
@@ -280,8 +284,20 @@ export class ExportService {
         .map(([role, filePath]) => `<item id="${role}" href="assets/${assetFileName(role, filePath)}" media-type="${mediaTypeFor(filePath)}"/>`)
         .join('');
       archive.append(`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">cervantes-${Date.now()}</dc:identifier><dc:title>${escapeHtml(title)}</dc:title><dc:language>es</dc:language></metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>${manifestAssets}</manifest><spine><itemref idref="content"/></spine></package>`, { name: 'OEBPS/package.opf' });
-      archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title></head><body><nav epub:type="toc"><h1>Indice</h1><ol><li><a href="content.xhtml">Libro completo</a></li></ol></nav></body></html>`, { name: 'OEBPS/nav.xhtml' });
-      archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title><style>body{font-family:serif;line-height:1.55}img{max-width:100%}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px}</style></head><body>${htmlBody}</body></html>`, { name: 'OEBPS/content.xhtml' });
+      
+      const headings = [...htmlBody.matchAll(/<h([12])[^>]*>(.*?)<\/h\1>/g)];
+      const tocItems = headings.length > 0 
+        ? headings.map((h, i) => `<li><a href="content.xhtml#heading-${i}">${h[2]}</a></li>`).join('')
+        : `<li><a href="content.xhtml">Libro completo</a></li>`;
+        
+      const htmlBodyWithIds = htmlBody.replace(/<h([12])[^>]*>(.*?)<\/h\1>/g, (match, level, content, offset) => {
+        // Quick trick to assign IDs for the TOC
+        const idx = [...htmlBody.substring(0, offset).matchAll(/<h[12]/g)].length;
+        return `<h${level} id="heading-${idx}">${content}</h${level}>`;
+      });
+      
+      archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>${escapeHtml(title)}</title></head><body><nav epub:type="toc"><h1>Indice</h1><ol>${tocItems}</ol></nav></body></html>`, { name: 'OEBPS/nav.xhtml' });
+      archive.append(`<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${escapeHtml(title)}</title><style>body{font-family:serif;line-height:1.55}img{max-width:100%}table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px}</style></head><body>${htmlBodyWithIds}</body></html>`, { name: 'OEBPS/content.xhtml' });
       for (const [role, filePath] of Object.entries(assets)) {
         archive.file(filePath, { name: `OEBPS/assets/${assetFileName(role, filePath)}` });
       }
@@ -290,6 +306,12 @@ export class ExportService {
   }
 
   async exportFormat(projectId: number, format: string) {
+    const readiness = await validateFinalExportReadiness(projectId);
+    if (!readiness.isReady && format !== 'md') {
+      // We allow markdown generation without gate for previews, but not PDF/EPUB/DOCX.
+      throw new Error(`Quality Gate fallido para exportación (${format}): ${readiness.blockers.join(', ')}`);
+    }
+
     await ensureDir();
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new Error('Project not found');
@@ -329,13 +351,25 @@ export class ExportService {
       await fs.writeFile(filePath, await Packer.toBuffer(doc));
     } else if (format === 'pdf') {
       const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
+      
+      const sanitizerResult = sanitizeHtmlContent(rendered.html);
+      if (!sanitizerResult.isClean) {
+        throw new Error(`QA FALLÓ en Renderizado PDF: El documento contiene artefactos técnicos prohibidos: ${sanitizerResult.errors.join(', ')}`);
+      }
+
       const browser = await puppeteer.launch({ headless: true });
       const page = await browser.newPage();
-      await page.goto(`file://${rendered.htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'networkidle0' });
+      await page.goto(`file://${rendered.htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'load', timeout: 60000 });
       await page.pdf({ path: filePath, format: 'A4', printBackground: true, displayHeaderFooter: false });
       await browser.close();
     } else if (format === 'epub') {
       const rendered = await this.layoutService.renderProject(projectId, { assetBase: 'assets' });
+      
+      const sanitizerResult = sanitizeHtmlContent(rendered.html);
+      if (!sanitizerResult.isClean) {
+        throw new Error(`QA FALLÓ en Renderizado EPUB: El documento contiene artefactos técnicos prohibidos: ${sanitizerResult.errors.join(', ')}`);
+      }
+
       await this.writeEpub(filePath, title, rendered.html, rendered.layout.assets);
     } else {
       throw new Error(`Unsupported format: ${format}`);
@@ -355,6 +389,11 @@ export class ExportService {
   }
 
   async exportZip(projectId: number) {
+    const readiness = await validateFinalExportReadiness(projectId);
+    if (!readiness.isReady) {
+      throw new Error(`Quality Gate fallido para ZIP de producción: ${readiness.blockers.join(', ')}`);
+    }
+
     await ensureDir();
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new Error('Project not found');

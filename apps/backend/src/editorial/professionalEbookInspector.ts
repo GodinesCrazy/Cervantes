@@ -27,7 +27,7 @@ export class ProfessionalEbookInspector {
     const textHeavyPages = readingPages.filter((page) => page.content.join(' ').split(/\s+/).length > 620);
     const emptyPages = layout.pages.filter((page) => !['cover', 'chapter-opener'].includes(page.type) && page.content.join('').trim().length < 18);
     const pageTypes = new Set(layout.pages.map((page) => page.type));
-    const markdownLeak = /\*\*|!\[|lorem ipsum|pendiente de redacci[oó]n|como modelo de ia/i.test(html);
+    const markdownLeak = /\*\*|!\[|lorem ipsum|pendiente de redacci[oó]n|como modelo de ia|"type"\s*:|"image_prompt"\s*:|"inline_image"/i.test(html);
     const hasTexture = html.includes('professional-layout') || html.includes('data-professional="true"');
     const approvedCriticalPages = layout.pages
       .filter((page) => ['cover', 'title', 'toc', 'chapter-opener', 'figure-page', 'worksheet', 'appendix', 'credits'].includes(page.type))

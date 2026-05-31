@@ -33,6 +33,7 @@ model Project {
   idea                EbookIdea?
   clarifications      ClarificationQuestion[]
   marketResearch      MarketResearch?
+  bookStandardBenchmark BookStandardBenchmark?
   competitors         CompetitorBook[]
   languageOpportunity LanguageOpportunity?
   editorialFormula    EditorialFormula?
@@ -199,6 +200,7 @@ model EditorialBible {
   approvalChecklist String?
   fullDocument    String?
   status          String   @default("DRAFT")
+  approvalStatus  String   @default("PENDING")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -225,6 +227,7 @@ model VisualBible {
   exportCriteria   String?
   fullDocument     String?
   status           String   @default("DRAFT")
+  approvalStatus   String   @default("PENDING")
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -242,6 +245,7 @@ model ChapterPlan {
   dependencies    String?
   approvalCriteria String?
   status          String   @default("PENDING")
+  approvalStatus  String   @default("PENDING")
   order           Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -258,6 +262,7 @@ model ManuscriptBlock {
   content       String?
   wordCount     Int?
   status        String   @default("PENDING")
+  approvalStatus String  @default("PENDING")
   version       Int      @default(1)
   aiGenerated   Boolean  @default(false)
   aiModel       String?
@@ -382,6 +387,7 @@ model FormatBuild {
   filePath         String?
   fileSize         Int?
   status           String   @default("PENDING")
+  approvalStatus   String   @default("PENDING")
   validationReport String?
   createdAt        DateTime @default(now())
 
@@ -458,16 +464,17 @@ model VersionSnapshot {
 }
 
 model PhaseGate {
-  id          Int      @id @default(autoincrement())
-  projectId   Int
-  phase       String
-  status      String   @default("PENDING")
-  notes       String?
-  overrideReason String?
-  approvedBy  String?
-  approvedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               Int      @id @default(autoincrement())
+  projectId        Int
+  phase            String
+  generationStatus String   @default("PENDING")
+  approvalStatus   String   @default("PENDING")
+  notes            String?
+  overrideReason   String?
+  approvedBy       String?
+  approvedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -535,4 +542,36 @@ model BackupRecord {
   createdAt   DateTime @default(now())
 
   project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
+
+model BookStandardBenchmark {
+  id                         Int      @id @default(autoincrement())
+  projectId                  Int      @unique
+  productType                String?
+  category                   String?
+  subcategory                String?
+  marketPosition             String?
+  targetPlatforms            String?
+  targetPrice                Float?
+  recommendedWordCountMin    Int?
+  recommendedWordCountTarget Int?
+  recommendedWordCountMax    Int?
+  recommendedPageCountMin    Int?
+  recommendedPageCountTarget Int?
+  recommendedPageCountMax    Int?
+  recommendedChapterCount    Int?
+  recommendedWordsPerChapter Int?
+  recommendedVisualCount     Int?
+  requiresWorkbook           Boolean  @default(false)
+  requiresTemplates          Boolean  @default(false)
+  requiresQuickGuide         Boolean  @default(false)
+  requiresBibliography       Boolean  @default(false)
+  requiresDisclaimer         Boolean  @default(false)
+  riskMode                   String?
+  reasoning                  String?
+  approvalStatus             String   @default("PENDING")
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }

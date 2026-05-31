@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, Link } from 'react-router-dom';
 import type { PhaseGate } from '../types/domain';
 
 export const phases = [
@@ -29,40 +29,42 @@ type Props = {
 
 export function Progress({ projectId, currentPhase, phaseGates = [] }: Props) {
   const index = Math.max(0, phases.findIndex((phase) => phase.key === currentPhase));
-  const gateByPhase = new Map(phaseGates.map((gate) => [gate.phase, gate.status]));
+  const gateByPhase = new Map(phaseGates.map((gate) => [gate.phase, gate]));
   const progressUnits = phases.reduce((total, phase) => {
-    const status = gateByPhase.get(phase.gateKey || phase.key);
-    if (status === 'APPROVED') return total + 1;
-    if (status === 'GENERATED') return total + 0.45;
+    const gate = gateByPhase.get(phase.gateKey || phase.key);
+    if (!gate) return total;
+    if (gate.approvalStatus === 'APPROVED') return total + 1;
+    if (gate.generationStatus === 'GENERATED') return total + 0.45;
     return total;
   }, 0);
   const percent = Math.round((progressUnits / phases.length) * 100);
 
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <Link to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit', cursor: 'pointer' }}>
         <span className="brandMark">C</span>
         <div>
           <strong>Cervantes</strong>
           <small>{percent}% pipeline</small>
         </div>
-      </div>
+      </Link>
       <div className="progressTrack">
         <span style={{ width: `${percent}%` }} />
       </div>
       <nav className="phaseNav">
         {phases.map((phase, phaseIndex) => {
-          const gateStatus = gateByPhase.get(phase.gateKey || phase.key);
-          const fallbackDone = !gateStatus && phaseIndex <= index;
-          const statusLabel = gateStatus === 'APPROVED'
-            ? 'Aprobada'
-            : gateStatus === 'GENERATED'
-              ? 'Generada'
-              : gateStatus === 'NEEDS_REVISION'
-                ? 'Revisar'
-                : gateStatus === 'BLOCKED'
-                  ? 'Bloqueada'
-                  : 'Pendiente';
+          const gate = gateByPhase.get(phase.gateKey || phase.key);
+          const generationStatus = gate?.generationStatus || 'PENDING';
+          const approvalStatus = gate?.approvalStatus || 'PENDING';
+          const fallbackDone = !gate && phaseIndex <= index;
+          
+          let statusLabel = 'Pendiente';
+          if (approvalStatus === 'APPROVED') statusLabel = 'Aprobada';
+          else if (approvalStatus === 'NEEDS_REVISION') statusLabel = 'Revisar';
+          else if (approvalStatus === 'BLOCKED') statusLabel = 'Bloqueada';
+          else if (generationStatus === 'GENERATED') statusLabel = 'Generada';
+          else if (generationStatus === 'PENDING') statusLabel = 'Pendiente';
+
           return (
             <NavLink
               key={phase.key}
@@ -71,9 +73,9 @@ export function Progress({ projectId, currentPhase, phaseGates = [] }: Props) {
               className={({ isActive }) =>
                 [
                   isActive ? 'active' : '',
-                  gateStatus === 'APPROVED' || fallbackDone ? 'done' : '',
-                  gateStatus === 'GENERATED' ? 'generated' : '',
-                  gateStatus === 'NEEDS_REVISION' || gateStatus === 'BLOCKED' ? 'blocked' : '',
+                  approvalStatus === 'APPROVED' || fallbackDone ? 'done' : '',
+                  generationStatus === 'GENERATED' && approvalStatus !== 'APPROVED' ? 'generated' : '',
+                  approvalStatus === 'NEEDS_REVISION' || approvalStatus === 'BLOCKED' ? 'blocked' : '',
                 ].filter(Boolean).join(' ')
               }
             >

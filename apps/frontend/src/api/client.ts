@@ -14,8 +14,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const api = {
   projects: () => request<Project[]>('/api/projects'),
   project: (id: string | number) => request<Project>(`/api/projects/${id}`),
+  deleteProject: (id: string | number) => request<{ success: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
+  projectSnapshot: (id: string | number) => request<any>(`/api/projects/${id}/snapshot`),
   createProject: (data: { name: string; rawIdea: string; topic?: string; audience?: string; tone?: string }) =>
     request<Project>('/api/projects', { method: 'POST', headers: jsonHeaders, body: JSON.stringify(data) }),
+  autofillRandomIdea: () =>
+    request<Record<string, string>>('/api/projects/autofill/random-idea', { method: 'POST', headers: jsonHeaders }),
+  autofillQuestions: (id: number) =>
+    request<Record<string, unknown>>(`/api/projects/${id}/autofill/questions`, { method: 'POST', headers: jsonHeaders }),
   saveIdea: (id: number, data: Record<string, unknown>) =>
     request<Project>(`/api/projects/${id}/idea`, { method: 'POST', headers: jsonHeaders, body: JSON.stringify(data) }),
   saveClarifications: (id: number, answers: { id: number; answer: string }[]) =>
@@ -29,6 +35,11 @@ export const api = {
       method: 'POST',
       headers: jsonHeaders,
       body: JSON.stringify(data),
+    }),
+  autofixAudit: (id: number) =>
+    request<Project>(`/api/projects/${id}/audit/autofix`, {
+      method: 'POST',
+      headers: jsonHeaders,
     }),
   updateBlock: (projectId: number, blockId: number, data: Record<string, unknown>) =>
     request<Project>(`/api/projects/${projectId}/blocks/${blockId}`, {

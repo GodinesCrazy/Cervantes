@@ -1,3 +1,5 @@
+import { envConfig, getCredentialsStatus } from '../config';
+
 export type AIResult<T> = {
   provider: 'template' | 'openai' | 'gemini' | 'groq' | 'openrouter' | 'mistral' | 'cerebras' | 'deepseek' | 'together' | 'fireworks' | 'cohere';
   model?: string;
@@ -9,57 +11,57 @@ export type AIResult<T> = {
 export type AIProvider = Exclude<AIResult<unknown>['provider'], 'template'>;
 
 const systemPrompt =
-  'You are Cervantes, a production editorial engine. Return strict JSON only. Preserve all required fields and avoid unsupported claims.';
+  'You are Cervantes, a production editorial engine. Return strict JSON only. NEVER use markdown blocks like ```json around the response. NEVER inject internal tags like "paragraph" or "checklist" as visible text. Do not invent unverified statistics. Preserve all required fields and avoid unsupported claims. If a claim requires verification, mark it with requiresVerification: true.';
 
 export class AIService {
   private static providerCooldowns = new Map<AIProvider, number>();
-  private provider = (process.env.AI_PROVIDER || 'auto').toLowerCase();
-  private requestTimeoutMs = Number(process.env.AI_REQUEST_TIMEOUT_MS || 10000);
-  private maxAttempts = Number(process.env.AI_MAX_ATTEMPTS || 3);
+  private provider = envConfig.ai.provider;
+  private requestTimeoutMs = envConfig.ai.requestTimeoutMs;
+  private maxAttempts = envConfig.ai.maxAttempts;
   private providers: Record<AIProvider, { apiKey?: string; model: string }> = {
     openai: {
-      apiKey: process.env.OPENAI_API_KEY,
-      model: process.env.OPENAI_MODEL || process.env.AI_MODEL || 'gpt-4o',
+      apiKey: envConfig.credentials.openai,
+      model: envConfig.models.openai || envConfig.ai.model || 'gpt-4o',
     },
     gemini: {
-      apiKey: process.env.GEMINI_API_KEY,
-      model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
+      apiKey: envConfig.credentials.gemini,
+      model: envConfig.models.gemini || envConfig.ai.model || 'gemini-2.5-flash',
     },
     groq: {
-      apiKey: process.env.GROQ_API_KEY,
-      model: process.env.GROQ_MODEL || process.env.AI_MODEL || 'llama-3.3-70b-versatile',
+      apiKey: envConfig.credentials.groq,
+      model: envConfig.models.groq || envConfig.ai.model || 'llama-3.3-70b-versatile',
     },
     openrouter: {
-      apiKey: process.env.OPENROUTER_API_KEY,
-      model: process.env.OPENROUTER_MODEL || 'openrouter/free',
+      apiKey: envConfig.credentials.openrouter,
+      model: envConfig.models.openrouter || 'openrouter/free',
     },
     mistral: {
-      apiKey: process.env.MISTRAL_API_KEY,
-      model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
+      apiKey: envConfig.credentials.mistral,
+      model: envConfig.models.mistral || 'mistral-small-latest',
     },
     cerebras: {
-      apiKey: process.env.CEREBRAS_API_KEY,
-      model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
+      apiKey: envConfig.credentials.cerebras,
+      model: envConfig.models.cerebras || 'gpt-oss-120b',
     },
     deepseek: {
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+      apiKey: envConfig.credentials.deepseek,
+      model: envConfig.models.deepseek || 'deepseek-chat',
     },
     together: {
-      apiKey: process.env.TOGETHER_API_KEY,
-      model: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+      apiKey: envConfig.credentials.together,
+      model: envConfig.models.together || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
     },
     fireworks: {
-      apiKey: process.env.FIREWORKS_API_KEY,
-      model: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+      apiKey: envConfig.credentials.fireworks,
+      model: envConfig.models.fireworks || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
     },
     cohere: {
-      apiKey: process.env.COHERE_API_KEY,
-      model: process.env.COHERE_MODEL || 'command-a-03-2025',
+      apiKey: envConfig.credentials.cohere,
+      model: envConfig.models.cohere || 'command-a-03-2025',
     },
   };
 
-  async generate<T>(templateData: T, options: { engine?: string; prompt?: string; provider?: AIProvider } = {}): Promise<AIResult<T>> {
+  async generate<T>(templateData: T, options: { engine?: string; prompt?: string; provider?: AIProvider; maxTokens?: number; base64Image?: string } = {}): Promise<AIResult<T>> {
     if (!options.prompt) {
       return {
         provider: 'template',
@@ -67,7 +69,7 @@ export class AIService {
         prompt: options.prompt,
       };
     }
-    if ((process.env.NODE_ENV === 'test' || process.env.VITEST) && process.env.AI_TEST_EXTERNAL !== 'true') {
+    if (envConfig.isTest && !envConfig.aiTestExternal) {
       return {
         provider: 'template',
         data: templateData,
@@ -91,10 +93,11 @@ export class AIService {
       }
 
       try {
+        const maxTokens = options.maxTokens || this.defaultMaxTokens(options.engine);
         const data = provider === 'gemini'
-          ? await this.callGemini<T>(options.prompt, templateData, config.apiKey, config.model)
+          ? await this.callGemini<T>(options.prompt, templateData, config.apiKey, config.model, options.base64Image)
           : provider === 'cohere'
-            ? await this.callCohere<T>(options.prompt, templateData, config.apiKey, config.model)
+            ? await this.callCohere<T>(options.prompt, templateData, config.apiKey, config.model, maxTokens)
             : await this.callOpenAICompatible<T>(
               provider,
               this.openAICompatibleEndpoint(provider),
@@ -102,6 +105,8 @@ export class AIService {
               templateData,
               config.apiKey,
               config.model,
+              maxTokens,
+              options.base64Image
             );
 
         return {
@@ -133,7 +138,7 @@ export class AIService {
       return [this.provider];
     }
     const taskRoute = this.taskProviderChain(engine);
-    const configured = (process.env.AI_PROVIDER_ORDER || '')
+    const configured = envConfig.ai.providerOrder
       .split(',')
       .map(provider => provider.trim().toLowerCase())
       .filter((provider): provider is AIProvider => this.isProvider(provider));
@@ -146,58 +151,23 @@ export class AIService {
 
   private taskProviderChain(engine?: string): AIProvider[] {
     if (!engine) return [];
-    if (/market|research|language|naming|go-nogo/i.test(engine)) return ['gemini', 'openai', 'openrouter', 'deepseek'];
-    if (/chapter|blocks|writer/i.test(engine)) return ['deepseek', 'cerebras', 'groq', 'openai'];
-    if (/rewrite|rhythm|recovery/i.test(engine)) return ['deepseek', 'openai', 'groq'];
-    if (/audit|quality|claim|compliance/i.test(engine)) return ['gemini', 'openai', 'cohere', 'mistral'];
-    if (/visual|art|prompt|cover/i.test(engine)) return ['openai', 'gemini', 'groq'];
-    if (/metadata|publishing/i.test(engine)) return ['openai', 'gemini', 'cohere', 'groq'];
+    if (/market|research|language|naming|go-nogo/i.test(engine)) return ['gemini', 'openai', 'openrouter', 'deepseek', 'groq', 'cerebras', 'cohere'];
+    if (/chapter|blocks|writer/i.test(engine)) return ['deepseek', 'cerebras', 'groq', 'openai', 'cohere'];
+    if (/rewrite|rhythm|recovery/i.test(engine)) return ['deepseek', 'openai', 'groq', 'cerebras', 'cohere'];
+    if (/audit|quality|claim|compliance/i.test(engine)) return ['gemini', 'openai', 'cohere', 'mistral', 'groq', 'cerebras'];
+    if (/visual|art|prompt|cover/i.test(engine)) return ['openai', 'gemini', 'groq', 'cerebras', 'cohere'];
+    if (/metadata|publishing/i.test(engine)) return ['openai', 'gemini', 'cohere', 'groq', 'cerebras'];
     return [];
   }
 
+  private defaultMaxTokens(engine?: string): number {
+    if (!engine) return 4000;
+    if (/chapter|blocks|writer|rewrite|recovery/i.test(engine)) return 8192;
+    return 4000;
+  }
+
   private providerConfig(provider: AIProvider) {
-    return {
-      openai: {
-        apiKey: process.env.OPENAI_API_KEY,
-        model: process.env.OPENAI_MODEL || process.env.AI_MODEL || 'gpt-4o',
-      },
-      gemini: {
-        apiKey: process.env.GEMINI_API_KEY,
-        model: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
-      },
-      groq: {
-        apiKey: process.env.GROQ_API_KEY,
-        model: process.env.GROQ_MODEL || process.env.AI_MODEL || 'llama-3.3-70b-versatile',
-      },
-      openrouter: {
-        apiKey: process.env.OPENROUTER_API_KEY,
-        model: process.env.OPENROUTER_MODEL || 'openrouter/free',
-      },
-      mistral: {
-        apiKey: process.env.MISTRAL_API_KEY,
-        model: process.env.MISTRAL_MODEL || 'mistral-small-latest',
-      },
-      cerebras: {
-        apiKey: process.env.CEREBRAS_API_KEY,
-        model: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
-      },
-      deepseek: {
-        apiKey: process.env.DEEPSEEK_API_KEY,
-        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      },
-      together: {
-        apiKey: process.env.TOGETHER_API_KEY,
-        model: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
-      },
-      fireworks: {
-        apiKey: process.env.FIREWORKS_API_KEY,
-        model: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
-      },
-      cohere: {
-        apiKey: process.env.COHERE_API_KEY,
-        model: process.env.COHERE_MODEL || 'command-a-03-2025',
-      },
-    }[provider];
+    return this.providers[provider];
   }
 
   private isProvider(provider: string): provider is AIProvider {
@@ -243,10 +213,19 @@ export class AIService {
     templateData: T,
     apiKey: string,
     model: string,
+    maxTokens: number = 4000,
+    base64Image?: string
   ): Promise<T> {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
+        const userMessageContent: any = base64Image
+          ? [
+              { type: 'text', text: prompt },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
+            ]
+          : prompt;
+
         const response = await this.fetchWithTimeout(endpoint, {
           method: 'POST',
           headers: {
@@ -262,14 +241,14 @@ export class AIService {
           body: JSON.stringify({
             model,
             temperature: 0.3,
-            max_tokens: 4000,
+            max_tokens: maxTokens,
             ...(this.supportsJsonResponseFormat(provider) ? { response_format: { type: 'json_object' } } : {}),
             messages: [
               {
                 role: 'system',
                 content: systemPrompt,
               },
-              { role: 'user', content: prompt },
+              { role: 'user', content: userMessageContent },
             ],
           }),
         });
@@ -296,10 +275,20 @@ export class AIService {
     throw lastError;
   }
 
-  private async callGemini<T>(prompt: string, templateData: T, apiKey: string, model: string): Promise<T> {
+  private async callGemini<T>(prompt: string, templateData: T, apiKey: string, model: string, base64Image?: string): Promise<T> {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
+        const parts: any[] = [{ text: prompt }];
+        if (base64Image) {
+          parts.push({
+            inline_data: {
+              mime_type: 'image/png',
+              data: base64Image
+            }
+          });
+        }
+
         const response = await this.fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
           method: 'POST',
           headers: {
@@ -312,7 +301,7 @@ export class AIService {
             },
             contents: [
               {
-                parts: [{ text: prompt }],
+                parts,
               },
             ],
             generationConfig: {
@@ -354,7 +343,7 @@ export class AIService {
     throw lastError;
   }
 
-  private async callCohere<T>(prompt: string, templateData: T, apiKey: string, model: string): Promise<T> {
+  private async callCohere<T>(prompt: string, templateData: T, apiKey: string, model: string, maxTokens: number = 4000): Promise<T> {
     let lastError: Error | null = null;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
       try {
@@ -367,6 +356,7 @@ export class AIService {
           },
           body: JSON.stringify({
             model,
+            max_tokens: maxTokens,
             temperature: 0.3,
             messages: [
               { role: 'system', content: systemPrompt },

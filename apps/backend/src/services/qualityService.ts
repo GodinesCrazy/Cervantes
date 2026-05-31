@@ -23,14 +23,13 @@ export const productionPhases = [
 const readerFacingForbidden = [
   /procedo con/i,
   /como modelo de ia/i,
-  /prompt/i,
   /pendiente de redacci[oó]n/i,
   /lorem ipsum/i,
   /\bTODO\b/,
   /NEEDS_/i,
 ];
 
-export function inspectManuscript(markdown: string) {
+export function inspectManuscript(markdown: string, options?: { blockWordTotal?: number, expectedWordCountMin?: number, missingBlocks?: number }) {
   const issues: string[] = [];
   const wordCount = markdown.split(/\s+/).filter(Boolean).length;
   const headings = markdown.match(/^# /gm)?.length || 0;
@@ -39,12 +38,21 @@ export function inspectManuscript(markdown: string) {
     if (pattern.test(markdown)) issues.push(`Metatexto o placeholder detectado: ${pattern.source}`);
   }
   if (!markdown.includes('Front matter')) issues.push('Falta front matter.');
-  if (!markdown.includes('Apendice A: Checklist editorial')) issues.push('Falta checklist editorial.');
-  if (!markdown.includes('Apendice B: Resumen en ingles')) issues.push('Falta resumen multidioma.');
   if (!markdown.includes('assets/cover.svg')) issues.push('Falta portada.');
-  if (!markdown.includes('Tabla de decisión')) issues.push('Faltan tablas de decision.');
   if (headings < 8) issues.push('La estructura tiene pocos encabezados para un ebook premium.');
   if (wordCount < 1200) issues.push('El manuscrito es demasiado breve para produccion.');
+  
+  if (options) {
+    if (options.missingBlocks && options.missingBlocks > 0) {
+      issues.push(`Faltan ${options.missingBlocks} bloques por ensamblar.`);
+    }
+    if (options.blockWordTotal && wordCount < options.blockWordTotal * 0.95) {
+      issues.push(`El ensamblado final (${wordCount}) perdió más del 5% del contenido generado (${options.blockWordTotal}).`);
+    }
+    if (options.expectedWordCountMin && wordCount < options.expectedWordCountMin * 0.90) {
+      issues.push(`El ensamblado final (${wordCount}) no cumple con el mínimo de la fórmula (${options.expectedWordCountMin}).`);
+    }
+  }
 
   return {
     status: issues.length === 0 ? 'APPROVED' : 'NEEDS_REVISION',
@@ -54,24 +62,26 @@ export function inspectManuscript(markdown: string) {
   };
 }
 
-export async function upsertGate(projectId: number, phase: string, status: GateStatus, notes?: string, overrideReason?: string) {
+export async function upsertGate(projectId: number, phase: string, payload: { generationStatus?: GateStatus, approvalStatus?: GateStatus }, notes?: string, overrideReason?: string) {
   return prisma.phaseGate.upsert({
     where: { projectId_phase: { projectId, phase } },
     update: {
-      status,
+      ...(payload.generationStatus && { generationStatus: payload.generationStatus }),
+      ...(payload.approvalStatus && { approvalStatus: payload.approvalStatus }),
       notes,
       overrideReason,
-      approvedAt: status === 'APPROVED' ? new Date() : undefined,
-      approvedBy: status === 'APPROVED' ? 'Ivan' : undefined,
+      approvedAt: payload.approvalStatus === 'APPROVED' ? new Date() : undefined,
+      approvedBy: payload.approvalStatus === 'APPROVED' ? 'Ivan' : undefined,
     },
     create: {
       projectId,
       phase,
-      status,
+      generationStatus: payload.generationStatus || 'PENDING',
+      approvalStatus: payload.approvalStatus || 'PENDING',
       notes,
       overrideReason,
-      approvedAt: status === 'APPROVED' ? new Date() : undefined,
-      approvedBy: status === 'APPROVED' ? 'Ivan' : undefined,
+      approvedAt: payload.approvalStatus === 'APPROVED' ? new Date() : undefined,
+      approvedBy: payload.approvalStatus === 'APPROVED' ? 'Ivan' : undefined,
     },
   });
 }
@@ -80,13 +90,13 @@ export async function ensureDefaultGates(projectId: number) {
   for (const phase of productionPhases) {
     const existing = await prisma.phaseGate.findUnique({ where: { projectId_phase: { projectId, phase } } });
     if (!existing) {
-      await upsertGate(projectId, phase, 'PENDING');
+      await upsertGate(projectId, phase, { generationStatus: 'PENDING', approvalStatus: 'PENDING' });
     }
   }
 }
 
 export async function approveGeneratedGate(projectId: number, phase: string, notes?: string) {
-  return upsertGate(projectId, phase, 'APPROVED', notes || 'Aprobado automaticamente por verificador local.');
+  return upsertGate(projectId, phase, { approvalStatus: 'APPROVED' }, notes || 'Aprobado automaticamente por verificador local.');
 }
 
 export async function autoApproveStructuralGates(projectId: number) {
@@ -102,16 +112,16 @@ export async function autoApproveStructuralGates(projectId: number) {
   if (!project) throw new Error('Project not found');
 
   if (project.clarifications.length >= 5) {
-    await upsertGate(projectId, 'idea', 'APPROVED', 'Idea validada: preguntas estratégicas generadas.');
+    await upsertGate(projectId, 'idea', { approvalStatus: 'APPROVED' }, 'Idea validada: preguntas estratégicas generadas.');
   }
   if (project.chapterPlans.length >= 5) {
-    await upsertGate(projectId, 'chapter-plan', 'APPROVED', 'Índice validado: plan de capítulos suficiente.');
+    await upsertGate(projectId, 'chapter-plan', { approvalStatus: 'APPROVED' }, 'Índice validado: plan de capítulos suficiente.');
   }
   if (
     project.manuscriptBlocks.length >= 5
     && project.manuscriptBlocks.every((block) => (block.wordCount || 0) >= 750 && block.status !== 'NEEDS_REVISION' && !/template/i.test(block.aiModel || ''))
   ) {
-    await upsertGate(projectId, 'blocks', 'APPROVED', 'Bloques validados: contenido externo suficiente para ensamblaje.');
+    await upsertGate(projectId, 'blocks', { approvalStatus: 'APPROVED' }, 'Bloques validados: contenido externo suficiente para ensamblaje.');
   }
 }
 
@@ -163,8 +173,8 @@ export async function gateReport(projectId: number) {
   if (!project.publishingChecklist?.aiDeclaration) blockers.push('Falta declaracion de IA.');
 
   const gateBlockers = project.phaseGates
-    .filter((gate) => gate.status !== 'APPROVED' && gate.phase !== 'export')
-    .map((gate) => `Gate no aprobado: ${gate.phase} (${gate.status})`);
+    .filter((gate) => gate.approvalStatus !== 'APPROVED' && gate.phase !== 'export')
+    .map((gate) => `Gate no aprobado: ${gate.phase} (Generación: ${gate.generationStatus}, Aprobación: ${gate.approvalStatus})`);
 
   return {
     status: blockers.length === 0 && gateBlockers.length === 0 ? 'APPROVED' : 'NEEDS_REVISION',

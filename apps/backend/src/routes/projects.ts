@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import {
   auditTemplate,
+  autofixBlockTemplate,
   chapterPlanTemplate,
   clarificationQuestions,
   editorialBibleTemplate,
@@ -15,10 +16,22 @@ import {
   metadataTemplate,
   publishingTemplate,
   visualBibleTemplate,
+  diagramTemplate,
+  worksheetTemplate,
+  randomIdeaTemplate,
+  autofillQuestionsTemplate,
 } from '../engines/templates';
+import { decideBookStandards } from '../engines/bookStandardBenchmarkEngine';
+import { generateWordBudget } from '../engines/wordBudgetPlanner';
+import { exportFormatDecision } from '../engines/platformRequirements';
+import { validateFinalExportReadiness } from '../services/validators/finalExportQualityGate';
+import { lengthQualityGate } from '../services/validators/lengthQualityGate';
+import { priceValueConsistencyValidator } from '../services/validators/priceValueConsistencyValidator';
 import { ExportService } from '../exporters/exportService';
 import { EditorialLayoutService } from '../editorial/editorialLayoutService';
 import { createBackup } from '../services/backupService';
+import { processInlineImages } from '../ai/inlineImageProcessor';
+import { ImageGenerationService } from '../ai/imageService';
 import {
   approveGeneratedGate,
   gateReport,
@@ -27,13 +40,16 @@ import {
   validateGumroadPackage,
   validateKdpPackage,
 } from '../services/qualityService';
+import { getProjectQualitySnapshot } from '../services/pipelineConsistencyValidator';
 import { SelectiveRegenerationService } from '../editorial/selectiveRegenerationService';
 import { EditorialThemeEngine } from '../editorial/themeEngine';
 import { AIOrchestrator, AITaskType } from '../ai/aiOrchestrator';
+import { AutonomousQALoopService } from '../editorial/autonomousQALoop';
 
 const router = Router();
 const exporter = new ExportService();
 const layoutService = new EditorialLayoutService();
+const loopService = new AutonomousQALoopService();
 const selectiveRegen = new SelectiveRegenerationService();
 const aiOrchestrator = new AIOrchestrator();
 const root = path.resolve(__dirname, '../../../..');
@@ -247,6 +263,7 @@ async function resetDownstreamForIdeaChange(projectId: number) {
   await prisma.languageOpportunity.deleteMany({ where: { projectId } });
   await prisma.competitorBook.deleteMany({ where: { projectId } });
   await prisma.marketResearch.deleteMany({ where: { projectId } });
+  await prisma.clarificationQuestion.deleteMany({ where: { projectId } });
   await prisma.phaseGate.deleteMany({ where: { projectId, phase: { not: 'idea' } } });
   await prisma.project.update({
     where: { id: projectId },
@@ -519,30 +536,41 @@ async function latestExistingPdf(projectId: number) {
 }
 
 function buildExternalImagePrompt(project: Awaited<ReturnType<typeof projectOr404>>, asset: NonNullable<Awaited<ReturnType<typeof projectOr404>>['visualAssets']>[number]) {
-  const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
-  const style = asset.themeKey || project.visualBible?.visualConcept || 'premium editorial';
-  const language = project.languageOpportunity?.recommendedPrimary || project.marketResearch?.language || 'es';
+  // Extraemos la paleta de la Biblia Visual para forzar consistencia de marca
+  let paletteInstruction = 'a premium, coherent, elegant color palette';
+  if (project.visualBible?.colorPalette) {
+    try {
+      const parsed = JSON.parse(project.visualBible.colorPalette);
+      const colors = Object.values(parsed).filter(v => typeof v === 'string').join(', ');
+      if (colors.length > 0) paletteInstruction = `STRICT COLOR PALETTE: Use exclusively these colors: [${colors}].`;
+    } catch {
+      paletteInstruction = `STRICT COLOR PALETTE: Follow this color scheme closely: ${project.visualBible.colorPalette}`;
+    }
+  }
+
+  const style = asset.themeKey || project.visualBible?.visualConcept || 'premium clean editorial illustration, flat vector art or minimalist 3D, highly professional, clean negative space';
   const basePrompt = cleanPromptLike(asset.prompt || asset.description || asset.name);
+  
+  // Roles de diseño que asumen CERO texto y fomentan diseño limpio/gráfico
   const rolePrompts: Record<string, string> = {
-    cover: 'vertical premium front cover, commercial book cover, strong focal composition, no price text, no promotional badges, readable title area, editorial texture',
-    'chapter-opener': 'wide chapter opening illustration, immersive editorial plate, cinematic but refined, no clutter, no tiny text',
-    figure: 'premium conceptual editorial figure, useful visual explanation, elegant diagram blended with illustration, not PowerPoint, no tiny text',
-    separator: 'ornamental editorial separator, refined linework, transparent-like clean composition, consistent book ornament',
-    icons: 'consistent premium icon set, flat editorial symbols, coherent stroke weight, no text',
-    mockup: 'premium 3D ebook mockup for product page, clean commercial lighting, elegant background, no fake marketplace logos',
-    worksheet: 'premium printable worksheet page, editorial stationery style, clean fields, checklist elements, no illegible microtext',
+    cover: 'Text-less flat background art. Fill the entire canvas completely. Do NOT render a 3D book or physical object. This is a 2D digital background. Clean, premium graphic illustration. Leave clear negative space in the center for the typography.',
+    'chapter-opener': 'Text-less horizontal background. Fill the entire canvas. Clean negative space, elegant thematic graphic on one side, clean abstract composition.',
+    figure: 'Text-less conceptual infographic or editorial diagram elements. Flat, modern shapes, no labels, no words.',
+    separator: 'Text-less elegant editorial separator ornament. Minimalist, transparent-like clean composition, symmetric design.',
+    icons: 'Text-less premium flat icon set. Consistent stroke weight, modern editorial symbols, isolated on clean background.',
+    mockup: 'Text-less clean 3D objects or abstract editorial setup. Commercial studio lighting, elegant background.',
+    worksheet: 'Text-less stationery background or worksheet template frame. Clean lines, elegant margins, no microtext.',
   };
+
   return [
-    `Create a professional ebook visual asset for "${title}".`,
-    `Editorial role: ${asset.name} (${asset.layoutRole || asset.assetType}).`,
-    `Required use inside the ebook: ${asset.pagePlacement || 'publishing package'}.`,
-    `Style direction: ${style}.`,
-    `Language context: ${language}.`,
-    `Design brief: ${basePrompt}.`,
-    `Asset-specific instruction: ${rolePrompts[asset.assetType] || rolePrompts[asset.layoutRole || ''] || 'premium editorial image with clear hierarchy'}.`,
-    'The result must feel designed by a premium editorial art director, not AI generic art, not a slide deck, not a chatbot export.',
-    'Use coherent palette, tactile texture, elegant hierarchy, and a consistent visual system.',
-    'Avoid visible watermarks, platform logos, malformed text, distorted typography, low resolution, cheap stock-photo look, and random symbols.',
+    `Create a premium editorial graphic asset for a book about: ${project.name}.`,
+    `Asset type: ${rolePrompts[asset.assetType] || rolePrompts[asset.layoutRole || ''] || 'Clean text-less editorial image.'}`,
+    `Subject/Theme: ${basePrompt}.`,
+    `Art Direction: ${style}.`,
+    `${paletteInstruction}`,
+    'CRITICAL INSTRUCTION: ZERO TEXT POLICY. DO NOT INCLUDE ANY TYPOGRAPHY, WORDS, LETTERS, OR GIBBERISH TEXT in the image. This is a background/graphic asset only.',
+    'The result must look like a high-end vector illustration or premium digital art for a modern editorial publication. Avoid photorealism unless requested.',
+    'Avoid clutter, platform logos, malformed shapes, and complex scenes. Keep it elegant, structural, and clean.'
   ].join('\n');
 }
 
@@ -815,7 +843,7 @@ router.post('/', async (req, res, next) => {
       },
       include: { idea: true },
     });
-    await upsertGate(project.id, 'idea', rawIdea ? 'GENERATED' : 'PENDING', 'Proyecto creado desde idea base.');
+    await upsertGate(project.id, 'idea', { generationStatus: rawIdea ? 'GENERATED' : 'PENDING', approvalStatus: 'PENDING' }, 'Proyecto creado desde idea base.');
     res.status(201).json(project);
   } catch (error) {
     next(error);
@@ -907,8 +935,7 @@ router.get('/:id/preview.pdf', async (req, res, next) => {
 router.post('/:id/layout/render', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
-    const rendered = await layoutService.renderProject(projectId, { assetBase: `/api/projects/${projectId}/assets`, themeKey: req.body?.themeKey });
-    await upsertGate(projectId, 'preview', rendered.report.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Maquetacion visual: ${rendered.report.status}`);
+    const rendered = await loopService.runFinalQA(projectId, req.body?.themeKey);
     res.json({
       status: rendered.report.status,
       htmlPath: rendered.htmlPath,
@@ -954,7 +981,7 @@ router.post('/:id/layout/rhythm/apply', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
     const result = await layoutService.applyRhythm(projectId);
-    await upsertGate(projectId, 'preview', result.visualStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Ritmo editorial: ${result.status}`);
+    await upsertGate(projectId, 'preview', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, `Ritmo editorial: ${result.status}`);
     res.json(result);
   } catch (error) {
     next(error);
@@ -1053,7 +1080,7 @@ router.post('/:id/art-direction/apply', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
     const report = await layoutService.applyArtDirection(projectId, req.body?.styleKey);
-    await upsertGate(projectId, 'preview', report.layoutStatus === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION', `Direccion de arte aplicada: ${report.styleKey}`);
+    await upsertGate(projectId, 'preview', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, `Direccion de arte aplicada: ${report.styleKey}`);
     res.json(report);
   } catch (error) {
     next(error);
@@ -1133,7 +1160,10 @@ router.post('/:id/gates/:phase', async (req, res, next) => {
     await upsertGate(
       projectId,
       req.params.phase,
-      body.status || 'APPROVED',
+      {
+        generationStatus: body.generationStatus,
+        approvalStatus: body.approvalStatus || body.status || 'APPROVED'
+      },
       body.notes,
       body.overrideReason,
     );
@@ -1207,18 +1237,34 @@ router.post('/:id/idea', async (req, res, next) => {
     });
     const questions = await clarificationQuestions(idea.rawIdea);
     await logAI(projectId, 'idea-intake', questions);
-    const questionTexts = normalizeClarificationQuestions(questions.data as unknown[], idea.rawIdea);
+    let questionTexts = normalizeClarificationQuestions(questions.data as unknown[], idea.rawIdea);
+    
+    const existingQuestions = await prisma.clarificationQuestion.findMany({ where: { projectId } });
     await prisma.clarificationQuestion.deleteMany({ where: { projectId, answer: null } });
-    await prisma.clarificationQuestion.createMany({
-      data: questionTexts.map((question, index) => ({
-        projectId,
-        question,
-        category: 'strategy',
-        order: index + 1,
-      })),
-    });
+    
+    const answeredQuestions = existingQuestions.filter(q => q.answer);
+    const answeredTexts = answeredQuestions.map(q => q.question.toLowerCase());
+    
+    // Filter out EXACT duplicates first
+    let newQuestionsToInsert = questionTexts.filter(q => !answeredTexts.includes(q.toLowerCase()));
+    
+    // Limit to 5 questions TOTAL
+    const availableSlots = 5 - answeredQuestions.length;
+    if (availableSlots > 0) {
+      newQuestionsToInsert = newQuestionsToInsert.slice(0, availableSlots);
+      if (newQuestionsToInsert.length > 0) {
+        await prisma.clarificationQuestion.createMany({
+          data: newQuestionsToInsert.map((question, index) => ({
+            projectId,
+            question,
+            category: 'strategy',
+            order: answeredQuestions.length + index + 1,
+          })),
+        });
+      }
+    }
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'idea' } });
-    await upsertGate(projectId, 'idea', 'GENERATED', 'Brief y preguntas generadas.');
+    await upsertGate(projectId, 'idea', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Brief y preguntas generadas.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1244,7 +1290,7 @@ router.post('/:id/clarifications', async (req, res, next) => {
       });
     }
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'research' } });
-    await upsertGate(projectId, 'idea', 'APPROVED', 'Idea y brief inicial aprobados con respuestas del usuario.');
+    await upsertGate(projectId, 'idea', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Idea y brief inicial aprobados con respuestas del usuario.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1327,7 +1373,7 @@ router.post('/:id/market-research', async (req, res, next) => {
       await prisma.project.update({ where: { id: projectId }, data: { name: data.recommendedTitle } });
     }
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'research' } });
-    await upsertGate(projectId, 'research', data.userVerified ? 'APPROVED' : 'GENERATED', data.userVerified ? 'Investigacion verificada por usuario.' : 'Pendiente de verificacion humana.');
+    await upsertGate(projectId, 'research', { generationStatus: 'GENERATED', approvalStatus: data.userVerified ? 'APPROVED' : 'PENDING' }, data.userVerified ? 'Investigacion verificada por usuario.' : 'Pendiente de verificacion humana.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1351,7 +1397,7 @@ router.post('/:id/market-research/verify', async (req, res, next) => {
         verified: true,
       },
     });
-    await upsertGate(projectId, 'research', 'APPROVED', 'Investigacion verificada por usuario.');
+    await upsertGate(projectId, 'research', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Investigacion verificada por usuario.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1392,7 +1438,7 @@ router.post('/:id/language-opportunity', async (req, res, next) => {
       create: { ...dataToSave, projectId },
     });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'languages' } });
-    await upsertGate(projectId, 'languages', 'GENERATED', 'Oportunidad por idioma generada.');
+    await upsertGate(projectId, 'languages', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Oportunidad por idioma generada.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1409,7 +1455,7 @@ router.post('/:id/go-nogo', async (req, res, next) => {
       where: { id: projectId },
       data: { goNoGoScore: score, goNoGoResult: result, currentPhase: 'go-nogo' },
     });
-    await upsertGate(projectId, 'go-nogo', result === 'GO' ? 'APPROVED' : 'NEEDS_REVISION', `Decision ${result} con score ${score}.`);
+    await upsertGate(projectId, 'go-nogo', { generationStatus: 'GENERATED', approvalStatus: result === 'GO' ? 'APPROVED' : 'NEEDS_REVISION' }, `Decision ${result} con score ${score}.`);
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1469,8 +1515,22 @@ router.post('/:id/editorial-formula', async (req, res, next) => {
       update: dataToSave,
       create: { ...dataToSave, projectId },
     });
+    
+    // Automatically decide the book standards based on the formula
+    await decideBookStandards(projectId);
+    
+    const benchmark = await prisma.bookStandardBenchmark.findUnique({ where: { projectId } });
+    if (benchmark && dataToSave.recommendedPrice) {
+      const priceVal = priceValueConsistencyValidator(dataToSave.recommendedPrice, benchmark, benchmark.recommendedWordCountMin || 0);
+      if (!priceVal.passed) {
+         // Auto-reject formula if price/value ratio is absurd
+         await upsertGate(projectId, 'formula', { generationStatus: 'GENERATED', approvalStatus: 'NEEDS_REVISION' }, `Rechazado por inconsistencia de precio/valor: ${priceVal.issues.join(', ')}`);
+         return res.status(400).json({ error: 'Inconsistencia Precio/Valor detectada.', issues: priceVal.issues });
+      }
+    }
+    
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'formula' } });
-    await upsertGate(projectId, 'formula', 'GENERATED', 'Formula editorial generada.');
+    await upsertGate(projectId, 'formula', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Formula editorial generada.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1514,7 +1574,7 @@ router.post('/:id/editorial-bible', async (req, res, next) => {
       create: { ...dataToSave, projectId },
     });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'editorial-bible' } });
-    await upsertGate(projectId, 'editorial-bible', 'GENERATED', 'Biblia editorial generada.');
+    await upsertGate(projectId, 'editorial-bible', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Biblia editorial generada.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1526,7 +1586,8 @@ router.post('/:id/visual-bible', async (req, res, next) => {
     const projectId = Number(req.params.id);
     const project = await projectOr404(projectId);
     const ideaContext = project.idea?.rawIdea || project.name;
-    const generated = await visualBibleTemplate(ideaContext);
+    const marketResearchContext = project.marketResearch ? `Nicho/Categoría: ${project.marketResearch.niche || 'N/A'}. Audiencia: ${project.marketResearch.audience || 'N/A'}. Portadas en competencia: ${project.marketResearch.observedCovers || 'N/A'}. Promesa comercial exitosa: ${project.marketResearch.commercialPromise || 'N/A'}.` : '';
+    const generated = await visualBibleTemplate(ideaContext, marketResearchContext);
     await logAI(projectId, 'visual-bible', generated);
     const validFields = [
       'visualConcept', 'artDirection', 'colorPalette', 'typography', 'coverStyle', 
@@ -1559,7 +1620,7 @@ router.post('/:id/visual-bible', async (req, res, next) => {
       create: { ...dataToSave, projectId },
     });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'visual-bible' } });
-    await upsertGate(projectId, 'visual-bible', 'GENERATED', 'Biblia visual generada.');
+    await upsertGate(projectId, 'visual-bible', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Biblia visual generada.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1577,7 +1638,7 @@ router.post('/:id/chapter-plans', async (req, res, next) => {
     const plans = Array.isArray(req.body.plans) ? req.body.plans : generated.data;
     await prisma.chapterPlan.createMany({ data: plans.map((plan: object) => ({ ...plan, projectId })) });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'chapter-plan' } });
-    await upsertGate(projectId, 'chapter-plan', 'GENERATED', 'Plan de capitulos generado.');
+    await upsertGate(projectId, 'chapter-plan', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Plan de capitulos generado.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1600,29 +1661,54 @@ router.get('/:id/blocks/stream', async (req, res, next) => {
     };
     
     // Aprobar el Índice porque ya pasamos a bloques
-    await upsertGate(projectId, 'chapter-plan', 'APPROVED', 'Aprobado al comenzar la generación de bloques');
+    await upsertGate(projectId, 'chapter-plan', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Aprobado al comenzar la generación de bloques');
 
     await prisma.manuscriptBlock.deleteMany({ where: { projectId } });
 
     const totalChapters = project.chapterPlans.length;
     let currentChapterIndex = 0;
+    const editorialRules = project.editorialBible ? `Tono: ${project.editorialBible.tone}. Reglas: ${project.editorialBible.contentRules}. Estructura: ${project.editorialBible.chapterTemplate || 'Libre'}` : '';
+    const visualRules = project.visualBible ? `Recuadros: ${project.visualBible.calloutStyle}. Tablas: ${project.visualBible.tableStyle}.` : '';
     
     for (const plan of project.chapterPlans) {
       currentChapterIndex++;
       sendEvent({ currentChapterIndex, chapterProgress: 0, globalProgress: Math.round(((currentChapterIndex - 1) / totalChapters) * 100), message: `Generando capítulo ${currentChapterIndex} de ${totalChapters}: ${plan.title}...` });
       
-      const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000, (progress) => {
+      const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000, editorialRules, visualRules, (progress) => {
         sendEvent({ currentChapterIndex, chapterProgress: progress, globalProgress: Math.round(((currentChapterIndex - 1) / totalChapters) * 100), message: `Escribiendo partes del capítulo ${currentChapterIndex}...` });
       });
-      const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
-      const wordCount = String(content).split(/\s+/).filter(Boolean).length;
+
+      // Parse JSON from generated content
+      let parsedBlocks = [];
+      let finalContentString = '';
+      try {
+        let rawString = String(generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '{}');
+        rawString = rawString.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsedData = JSON.parse(rawString);
+        
+        if (parsedData.blocks) {
+          // Procesar las imágenes inline
+          const processedBlocks = await processInlineImages(projectId, plan.id, parsedData.blocks, (msg) => {
+             sendEvent({ currentChapterIndex, chapterProgress: 95, globalProgress: Math.round(((currentChapterIndex - 1) / totalChapters) * 100), message: msg });
+          });
+          parsedData.blocks = processedBlocks;
+          finalContentString = JSON.stringify(parsedData, null, 2);
+        } else {
+          finalContentString = String(rawString);
+        }
+      } catch (e) {
+        console.error('Error parseando JSON del capítulo para procesar imágenes inline:', e);
+        finalContentString = String(generated.data.content || '');
+      }
+
+      const wordCount = String(finalContentString).split(/\s+/).filter(Boolean).length;
       
       await prisma.manuscriptBlock.create({
         data: {
           projectId,
           chapterPlanId: plan.id,
           blockTitle: plan.title,
-          content: String(content),
+          content: finalContentString,
           wordCount,
           status: generated.data.externalAiUsed ? 'DRAFT' : 'NEEDS_REVISION',
           aiGenerated: true,
@@ -1646,6 +1732,9 @@ router.get('/:id/blocks/stream', async (req, res, next) => {
       await prisma.visualAsset.create({ data: { ...asset, projectId, themeKey: 'premium-editorial', qualityStatus: 'PENDING', status: 'GENERATED', approvalStatus: 'PENDING', rights: 'SVG editorial local generado por Cervantes; aprobable o reemplazable antes de publicar.' } });
     }
     
+    await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'blocks' } });
+    await upsertGate(projectId, 'blocks', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Bloques y assets visuales iniciales generados.');
+    
     sendEvent({ done: true });
     res.end();
   } catch (error) {
@@ -1660,9 +1749,12 @@ router.post('/:id/blocks', async (req, res, next) => {
     const projectId = Number(req.params.id);
     const project = await projectOr404(projectId);
     await prisma.manuscriptBlock.deleteMany({ where: { projectId } });
+    const editorialRules = project.editorialBible ? `Tono: ${project.editorialBible.tone}. Reglas: ${project.editorialBible.contentRules}. Estructura: ${project.editorialBible.chapterTemplate || 'Libre'}` : '';
+    const visualRules = project.visualBible ? `Recuadros: ${project.visualBible.calloutStyle}. Tablas: ${project.visualBible.tableStyle}.` : '';
+
     if (true) {
       for (const plan of project.chapterPlans) {
-        const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000);
+        const generated = await generateFullChapterTemplate(plan.title, plan.summary || '', project.name, plan.estimatedWords || 1000, editorialRules, visualRules);
         const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
         const wordCount = String(content).split(/\s+/).filter(Boolean).length;
         await prisma.manuscriptBlock.create({
@@ -1696,7 +1788,7 @@ router.post('/:id/blocks', async (req, res, next) => {
       await prisma.manuscriptBlock.create({ data: { ...req.body, projectId } });
     }
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'blocks' } });
-    await upsertGate(projectId, 'blocks', 'GENERATED', 'Bloques y assets visuales iniciales generados.');
+    await upsertGate(projectId, 'blocks', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Bloques y assets visuales iniciales generados.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1728,7 +1820,7 @@ router.put('/:id/blocks/:blockId', async (req, res, next) => {
       },
     });
     if (req.body.status === 'APPROVED') {
-      await upsertGate(Number(req.params.id), 'blocks', 'APPROVED', 'Bloque aprobado manualmente.');
+      await upsertGate(Number(req.params.id), 'blocks', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Bloque aprobado manualmente.');
     }
     res.json(await projectOr404(Number(req.params.id)));
   } catch (error) {
@@ -1742,8 +1834,14 @@ router.post('/:id/blocks/:blockId/generate', async (req, res, next) => {
     const block = await prisma.manuscriptBlock.findUnique({ where: { id: Number(req.params.blockId) } });
     if (!block) throw new Error('Block not found');
     const plan = block.chapterPlanId ? await prisma.chapterPlan.findUnique({ where: { id: block.chapterPlanId } }) : null;
-    const generated = await generateFullChapterTemplate(block.blockTitle, plan?.summary || '', project.name, plan?.estimatedWords || 1000);
-    const content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
+    const editorialRules = project.editorialBible ? `Tono: ${project.editorialBible.tone}. Reglas: ${project.editorialBible.contentRules}. Estructura: ${project.editorialBible.chapterTemplate || 'Libre'}` : '';
+    const visualRules = project.visualBible ? `Recuadros: ${project.visualBible.calloutStyle}. Tablas: ${project.visualBible.tableStyle}.` : '';
+    const generated = await generateFullChapterTemplate(block.blockTitle, plan?.summary || '', project.name, plan?.estimatedWords || 1000, editorialRules, visualRules);
+    let content = generated.data.content || Object.values(generated.data).find(v => typeof v === 'string') || '';
+    
+    // Autonomous Stage QA
+    content = await loopService.runStageQA(project.id, block.id, block.blockTitle, String(content));
+    
     const wordCount = String(content).split(/\s+/).filter(Boolean).length;
     await prisma.manuscriptBlock.update({
       where: { id: block.id },
@@ -1761,10 +1859,26 @@ router.post('/:id/blocks/:blockId/generate', async (req, res, next) => {
   }
 });
 
+router.get('/:id/snapshot', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    const snapshot = await getProjectQualitySnapshot(projectId);
+    res.json(snapshot);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post('/:id/audit', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
-    const generated = await auditTemplate();
+    const projectInfo = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { idea: true }
+    });
+    const manuscriptText = await exporter.assembleMarkdown(projectId);
+    const commercialPromise = projectInfo?.idea?.rawIdea || 'Ebook Premium';
+    const generated = await auditTemplate(manuscriptText, commercialPromise);
     await logAI(projectId, 'audit', generated);
     let rawData = { ...generated.data, ...req.body };
     if (rawData.scores && typeof rawData.scores === 'object') {
@@ -1776,22 +1890,119 @@ router.post('/:id/audit', async (req, res, next) => {
       return Math.round(n);
     };
     
+    const coherenceScore = parseScore(rawData.coherenceScore) || parseScore(rawData.contentScore);
+    const toneScore = parseScore(rawData.toneScore) || parseScore(rawData.styleScore);
+    const structureScore = parseScore(rawData.structureScore);
+    const completenessScore = parseScore(rawData.completenessScore);
+    const overallScore = parseScore(rawData.overallScore);
+    
+    const issuesArray = Array.isArray(rawData.issues) ? rawData.issues : (typeof rawData.issues === 'string' ? [rawData.issues] : []);
+    const parsedIssues = JSON.stringify(issuesArray);
+    
+    let calculatedApprovalStatus = 'APPROVED';
+    if (coherenceScore < 90 || toneScore < 90 || structureScore < 85 || completenessScore < 85 || overallScore < 85 || issuesArray.some((i: string) => i.trim() && i.length > 5)) {
+       calculatedApprovalStatus = 'NEEDS_REVISION';
+    }
+
     const dataToSave = {
       projectId,
-      coherenceScore: parseScore(rawData.coherenceScore) || parseScore(rawData.contentScore),
-      toneScore: parseScore(rawData.toneScore) || parseScore(rawData.styleScore),
-      structureScore: parseScore(rawData.structureScore),
-      completenessScore: parseScore(rawData.completenessScore),
-      overallScore: parseScore(rawData.overallScore),
-      issues: typeof rawData.issues === 'string' ? rawData.issues : JSON.stringify(rawData.issues || []),
+      coherenceScore,
+      toneScore,
+      structureScore,
+      completenessScore,
+      overallScore,
+      issues: parsedIssues,
       recommendations: typeof rawData.recommendations === 'string' ? rawData.recommendations : JSON.stringify(rawData.recommendations || []),
       fullReport: String(rawData.fullReport || 'Auditoría generada por IA.'),
-      approvalStatus: String(rawData.approvalStatus || 'NEEDS_REVISION'),
+      approvalStatus: calculatedApprovalStatus,
     };
     await prisma.auditReport.deleteMany({ where: { projectId } });
     await prisma.auditReport.create({ data: dataToSave });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'audit' } });
-    await upsertGate(projectId, 'audit', generated.data.approvalStatus === 'APPROVED' ? 'APPROVED' : 'GENERATED', 'Auditoria editorial generada.');
+    await upsertGate(projectId, 'audit', { generationStatus: 'GENERATED', approvalStatus: calculatedApprovalStatus as 'APPROVED' | 'NEEDS_REVISION' }, 'Auditoria editorial completada.');
+    res.json(await projectOr404(projectId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/audit/autofix', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    
+    let currentAudit = await prisma.auditReport.findFirst({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts && currentAudit && currentAudit.approvalStatus === 'NEEDS_REVISION') {
+       attempts++;
+       const issues = currentAudit.issues || 'Revisar tono y fluidez.';
+       const recommendations = currentAudit.recommendations || 'Aplicar correcciones generales.';
+
+       const blocks = await prisma.manuscriptBlock.findMany({
+         where: { projectId },
+         orderBy: { order: 'asc' }
+       });
+
+       for (const block of blocks) {
+          if (!block.content) continue;
+          const correctedContent = await autofixBlockTemplate(block.content, issues, recommendations);
+          await prisma.manuscriptBlock.update({
+            where: { id: block.id },
+            data: { content: correctedContent }
+          });
+       }
+
+       const updatedManuscriptText = await exporter.assembleMarkdown(projectId);
+       const projectInfo = await prisma.project.findUnique({ where: { id: projectId }, include: { idea: true } });
+       const commercialPromise = projectInfo?.idea?.rawIdea || 'Ebook Premium';
+       
+       const generated = await auditTemplate(updatedManuscriptText, commercialPromise, true);
+       await logAI(projectId, 'audit-autofix', generated);
+       
+       const rawData = generated.data || {};
+       const parseScore = (val: any) => {
+         let n = Number(val) || 0;
+         if (n > 0 && n <= 1) n *= 100;
+         return Math.round(n);
+       };
+       
+       const coherenceScore = parseScore(rawData.coherenceScore);
+       const toneScore = parseScore(rawData.toneScore);
+       const structureScore = parseScore(rawData.structureScore);
+       const completenessScore = parseScore(rawData.completenessScore);
+       const overallScore = parseScore(rawData.overallScore);
+       
+       const issuesArray = Array.isArray(rawData.issues) ? rawData.issues : (typeof rawData.issues === 'string' ? [rawData.issues] : []);
+       const parsedIssues = JSON.stringify(issuesArray);
+       
+       let calculatedApprovalStatus = 'APPROVED';
+       if (coherenceScore < 90 || toneScore < 90 || structureScore < 85 || completenessScore < 85 || overallScore < 85 || issuesArray.some((i: string) => i.trim() && i.length > 5)) {
+          calculatedApprovalStatus = 'NEEDS_REVISION';
+       }
+
+       const dataToSave = {
+         projectId,
+         coherenceScore,
+         toneScore,
+         structureScore,
+         completenessScore,
+         overallScore,
+         issues: parsedIssues,
+         recommendations: typeof rawData.recommendations === 'string' ? rawData.recommendations : JSON.stringify(rawData.recommendations || []),
+         fullReport: String(rawData.fullReport || 'Auditoría generada por IA en autofix.'),
+         approvalStatus: calculatedApprovalStatus,
+       };
+       
+       await prisma.auditReport.deleteMany({ where: { projectId } });
+       currentAudit = await prisma.auditReport.create({ data: dataToSave });
+       await upsertGate(projectId, 'audit', { generationStatus: 'GENERATED', approvalStatus: calculatedApprovalStatus as 'APPROVED' | 'NEEDS_REVISION' }, 'Autocorrección completada.');
+    }
+
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1803,7 +2014,14 @@ router.post('/:id/recovery', async (req, res, next) => {
     const projectId = Number(req.params.id);
     await ensureRecoveryEditorialStructure(projectId);
     const masterManuscript = await exporter.assembleMarkdown(projectId);
-    const quality = inspectManuscript(masterManuscript);
+    const snapshot = await getProjectQualitySnapshot(projectId);
+    
+    const quality = inspectManuscript(masterManuscript, {
+      blockWordTotal: snapshot.blockWordTotal,
+      expectedWordCountMin: snapshot.expectedWordCountMin,
+      missingBlocks: snapshot.missingBlocks,
+    });
+    
     const status = quality.status === 'APPROVED' ? 'APPROVED' : 'NEEDS_REVISION';
     await prisma.recoveryReport.create({
       data: {
@@ -1820,10 +2038,10 @@ router.post('/:id/recovery', async (req, res, next) => {
     await upsertGate(
       projectId,
       'recovery',
-      status,
+      { generationStatus: 'GENERATED', approvalStatus: status },
       status === 'APPROVED'
-        ? 'Manuscrito maestro ensamblado y aprobado por verificador local.'
-        : `Manuscrito ensamblado con issues: ${quality.issues.join('; ')}`,
+        ? 'Manuscrito ensamblado correctamente.'
+        : `Manuscrito ensamblado con issues: ${quality.issues.join('; ')}`
     );
     res.json(await projectOr404(projectId));
   } catch (error) {
@@ -1842,15 +2060,36 @@ router.post('/:id/assemble', async (req, res, next) => {
 router.post('/:id/export/zip', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
+    
+    // lengthQualityGate verification
+    const project = await prisma.project.findUnique({ where: { id: projectId }, include: { chapterPlans: true, manuscriptBlocks: true, bookStandardBenchmark: true }});
+    if (project?.bookStandardBenchmark) {
+       const planTotal = project.chapterPlans.reduce((sum, ch) => sum + (ch.estimatedWords || 0), 0);
+       const blockTotal = project.manuscriptBlocks.reduce((sum, blk) => sum + (blk.wordCount || 0), 0);
+       const markdown = await exporter.assembleMarkdown(projectId);
+       const assembledTotal = markdown.split(/\\s+/).filter(Boolean).length;
+       const lengthVal = lengthQualityGate(planTotal, blockTotal, assembledTotal, project.bookStandardBenchmark);
+       if (!lengthVal.passed) {
+          return res.status(400).json({ error: 'Quality Gate fallido: longitud de mercado no alcanzada.', issues: lengthVal.issues });
+       }
+    }
+
     const report = await gateReport(projectId);
     const body = req.body || {};
     if (report.status !== 'APPROVED' && !body.overrideReason) {
       res.status(409).json({ error: 'Production gates are not approved', report });
       return;
     }
+    
+    // Commercial Export Gate
+    const finalReport = await validateFinalExportReadiness(projectId, await exporter.assembleMarkdown(projectId));
+    if (!finalReport.isReady) {
+      res.status(400).json({ error: 'El proyecto tiene bloqueos críticos de exportación.', blockers: finalReport.blockers });
+      return;
+    }
     await exporter.exportZip(projectId);
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'export' } });
-    await upsertGate(projectId, 'export', 'APPROVED', 'Paquete final de produccion generado.', body.overrideReason);
+    await upsertGate(projectId, 'export', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Paquete final de produccion generado.', body.overrideReason);
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1860,6 +2099,14 @@ router.post('/:id/export/zip', async (req, res, next) => {
 router.post('/:id/export/:format', async (req, res, next) => {
   try {
     const projectId = Number(req.params.id);
+
+    // Commercial Export Gate
+    const finalReport = await validateFinalExportReadiness(projectId, await exporter.assembleMarkdown(projectId));
+    if (!finalReport.isReady) {
+      res.status(400).json({ error: 'El proyecto tiene bloqueos críticos de exportación.', blockers: finalReport.blockers });
+      return;
+    }
+
     await exporter.exportFormat(projectId, req.params.format);
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'export' } });
     res.json(await projectOr404(projectId));
@@ -1877,6 +2124,13 @@ router.post('/:id/production-package', async (req, res, next) => {
       res.status(409).json({ error: 'Production gates are not approved', report });
       return;
     }
+
+    // Commercial Export Gate
+    const finalReport = await validateFinalExportReadiness(projectId, await exporter.assembleMarkdown(projectId));
+    if (!finalReport.isReady) {
+      res.status(400).json({ error: 'El proyecto tiene bloqueos críticos de exportación.', blockers: finalReport.blockers });
+      return;
+    }
     const pack = await exporter.exportZip(projectId);
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'export' } });
     await prisma.publicationReadiness.upsert({
@@ -1884,7 +2138,7 @@ router.post('/:id/production-package', async (req, res, next) => {
       update: { status: 'APPROVED', finalPackagePath: pack.filePath, lastCheckedAt: new Date() },
       create: { projectId, status: 'APPROVED', finalPackagePath: pack.filePath, lastCheckedAt: new Date() },
     });
-    await upsertGate(projectId, 'export', 'APPROVED', 'Paquete final de produccion generado.', body.overrideReason);
+    await upsertGate(projectId, 'export', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Paquete final de produccion generado.', body.overrideReason);
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1904,7 +2158,7 @@ router.post('/:id/metadata', async (req, res, next) => {
       create: { ...data, projectId },
     });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'metadata' } });
-    await upsertGate(projectId, 'metadata', 'GENERATED', 'Metadata comercial generada.');
+    await upsertGate(projectId, 'metadata', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Metadata comercial generada.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1923,7 +2177,7 @@ router.post('/:id/publishing-checklist', async (req, res, next) => {
       create: { ...data, projectId },
     });
     await prisma.project.update({ where: { id: projectId }, data: { currentPhase: 'publishing' } });
-    await upsertGate(projectId, 'publishing', 'GENERATED', 'Checklist KDP/Gumroad generado.');
+    await upsertGate(projectId, 'publishing', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Checklist KDP/Gumroad generado.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -1946,7 +2200,7 @@ router.post('/:id/visual-assets/:assetId', async (req, res, next) => {
       },
     });
     const remaining = await prisma.visualAsset.count({ where: { projectId, approvalStatus: { not: 'APPROVED' } } });
-    if (remaining === 0) await upsertGate(projectId, 'visual-assets', 'APPROVED', 'Todos los assets visuales aprobados.');
+    if (remaining === 0) await upsertGate(projectId, 'visual-assets', { generationStatus: 'GENERATED', approvalStatus: 'APPROVED' }, 'Todos los assets visuales aprobados.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -2040,7 +2294,7 @@ router.post('/:id/visual-assets/:assetId/external-result', async (req, res, next
         rights: req.body.rights || 'Imagen generada por proveedor externo via Puter.js; revisar terminos/licencia antes de publicar externamente.',
       },
     });
-    await upsertGate(projectId, 'visual-assets', 'GENERATED', 'Imagen IA externa generada; requiere aprobacion visual.');
+    await upsertGate(projectId, 'visual-assets', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Imagen IA externa generada; requiere aprobacion visual.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -2075,7 +2329,7 @@ router.post('/:id/visual-assets/:assetId/external-fallback', async (req, res, ne
         rights: 'Fallback SVG local de Cervantes usado porque el proveedor IA externo no entrego una imagen usable.',
       },
     });
-    await upsertGate(projectId, 'visual-assets', 'GENERATED', 'Proveedor externo no disponible; fallback local activo.');
+    await upsertGate(projectId, 'visual-assets', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Proveedor externo no disponible; fallback local activo.');
     res.json(await projectOr404(projectId));
   } catch (error) {
     next(error);
@@ -2108,12 +2362,81 @@ router.post('/:id/visual-assets/:assetId/regenerate', async (req, res, next) => 
   try {
     const projectId = Number(req.params.id);
     const assetId = Number(req.params.assetId);
-    const asset = await prisma.visualAsset.findUnique({ where: { id: assetId } });
-    if (!asset || asset.projectId !== projectId) {
+    
+    // Obtenemos el proyecto completo para tener el contexto visual y metadata
+    const project = await projectOr404(projectId);
+    const asset = project.visualAssets.find(a => a.id === assetId);
+
+    if (!asset) {
       res.status(404).json({ error: 'Visual asset not found' });
       return;
     }
+
     const nextVariant = visualVariant(asset) + 1;
+    let newReplacementPath = JSON.stringify({
+      variant: nextVariant,
+      regeneratedAt: new Date().toISOString(),
+      consistency: 'Mantiene paleta, tipografia y direccion visual de la Biblia visual.',
+    });
+    let newRights = 'Nueva variante generada localmente; pendiente de aprobacion visual.';
+    let generatedImageAvailable = false;
+
+    // Fase 2: Interceptar diagramas y worksheets para generarlos por código (Mermaid/HTML)
+    if (asset.layoutRole === 'figure-map') {
+      const context = project.chapterPlans.map(p => p.title).join(' | ');
+      const mermaidCode = await diagramTemplate(project.name, context);
+      newReplacementPath = JSON.stringify({ code: mermaidCode, type: 'mermaid' });
+      newRights = 'Diagrama lógico generado vía IA vectorial.';
+      generatedImageAvailable = true;
+    } else if (asset.layoutRole === 'worksheet') {
+      const context = project.chapterPlans.map(p => p.title).join(' | ');
+      const htmlCode = await worksheetTemplate(project.name, context);
+      newReplacementPath = JSON.stringify({ code: htmlCode, type: 'html' });
+      newRights = 'Worksheet lógico generado vía IA estructurada.';
+      generatedImageAvailable = true;
+    } else {
+      // Intentamos generar con la IA real (Imágenes de píxeles)
+      try {
+        const prompt = buildExternalImagePrompt(project, asset);
+      const imageService = new ImageGenerationService();
+      // Las portadas suelen ser portrait, los separator landscape, los demás square
+      let orientation: 'portrait' | 'landscape' | 'square' = 'square';
+      if (asset.assetType === 'cover') orientation = 'portrait';
+      if (asset.assetType === 'separator' || asset.layoutRole === 'chapter-opener') orientation = 'landscape';
+
+      const result = await imageService.generateImage(prompt, { orientation });
+
+      if (result.url || result.base64 || result.buffer) {
+        const timestamp = Date.now();
+        const extension = result.url?.includes('.png') ? 'png' : 'jpg'; // Falta afinar si la url es jpg o png
+        const filename = `asset_${assetId}_${timestamp}.${extension}`;
+        
+        // Directorio donde guardaremos las imagenes localmente
+        const assetsDir = path.join(exportDir, '..', '..', 'storage', 'projects', String(projectId), 'assets');
+        await fs.mkdir(assetsDir, { recursive: true });
+        
+        const filePath = path.join(assetsDir, filename);
+
+          if (result.buffer) {
+            await fs.writeFile(filePath, result.buffer);
+          } else if (result.base64) {
+            await fs.writeFile(filePath, Buffer.from(result.base64, 'base64'));
+          } else if (result.url) {
+            const fetchResponse = await fetch(result.url);
+            const arrayBuffer = await fetchResponse.arrayBuffer();
+            await fs.writeFile(filePath, Buffer.from(arrayBuffer));
+          }
+
+          newReplacementPath = JSON.stringify({ filePath });
+          newRights = `Generado por ${result.provider} AI.`;
+          generatedImageAvailable = true;
+        }
+      } catch (externalError: any) {
+        console.error('[projects] Error from ImageService:', externalError);
+      }
+    } // End of else block for Image Generation
+
+    // Update database
     await prisma.visualAsset.update({
       where: { id: assetId },
       data: {
@@ -2122,16 +2445,16 @@ router.post('/:id/visual-assets/:assetId/regenerate', async (req, res, next) => 
         qualityStatus: 'PENDING',
         variant: nextVariant,
         approvedAt: null,
-        replacementPath: JSON.stringify({
-          variant: nextVariant,
-          regeneratedAt: new Date().toISOString(),
-          consistency: 'Mantiene paleta, tipografia y direccion visual de la Biblia visual.',
-        }),
-        rights: 'Nueva variante generada localmente; pendiente de aprobacion visual.',
+        replacementPath: newReplacementPath,
+        rights: newRights,
       },
     });
-    await upsertGate(projectId, 'visual-assets', 'GENERATED', 'Assets visuales regenerados; requieren aprobacion visual.');
-    res.json(await projectOr404(projectId));
+
+    await upsertGate(projectId, 'visual-assets', { generationStatus: 'GENERATED', approvalStatus: 'PENDING' }, 'Assets visuales regenerados; requieren aprobacion visual.');
+    const updatedProject = await projectOr404(projectId);
+    // Add our custom message as an extra field if possible, or just log it
+    console.log('[projects] Regenerate message:', generatedImageAvailable ? 'Imagen generada con IA' : 'Variante local incrementada');
+    res.json(updatedProject);
   } catch (error) {
     next(error);
   }
@@ -2149,6 +2472,62 @@ router.post('/:id/backup', async (req, res, next) => {
 router.get('/:id/history', async (req, res, next) => {
   try {
     res.json(await prisma.versionSnapshot.findMany({ where: { projectId: Number(req.params.id) }, orderBy: { createdAt: 'desc' } }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const projectId = Number(req.params.id);
+    await prisma.clarificationQuestion.deleteMany({ where: { projectId } });
+    await prisma.competitorBook.deleteMany({ where: { projectId } });
+    await prisma.chapterPlan.deleteMany({ where: { projectId } });
+    await prisma.manuscriptBlock.deleteMany({ where: { projectId } });
+    await prisma.auditReport.deleteMany({ where: { projectId } });
+    await prisma.recoveryReport.deleteMany({ where: { projectId } });
+    await prisma.visualAsset.deleteMany({ where: { projectId } });
+    await prisma.phaseGate.deleteMany({ where: { projectId } });
+    await prisma.versionSnapshot.deleteMany({ where: { projectId } });
+    
+    // One-to-one relations deletion can be attempted or left to cascade if they exist on the other side
+    try { await prisma.ebookIdea.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.marketResearch.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.languageOpportunity.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.editorialFormula.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.editorialBible.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.visualBible.deleteMany({ where: { projectId } }); } catch (e) {}
+    try { await prisma.metadataPackage.deleteMany({ where: { projectId } }); } catch (e) {}
+
+    await prisma.project.delete({ where: { id: projectId } });
+    res.json({ success: true, message: 'Proyecto eliminado correctamente.' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/autofill/random-idea', async (req, res, next) => {
+  try {
+    const idea = await randomIdeaTemplate();
+    res.json({ idea });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/:id/autofill/questions', async (req, res, next) => {
+  try {
+    const project = await projectOr404(Number(req.params.id));
+    const idea = project.idea?.rawIdea || '';
+    const questions = project.clarifications.map(q => ({ id: q.id, text: q.question }));
+    
+    if (!idea || questions.length === 0) {
+      res.status(400).json({ error: 'Falta la idea base o preguntas de clarificación.' });
+      return;
+    }
+
+    const answers = await autofillQuestionsTemplate(idea, questions);
+    res.json({ answers });
   } catch (error) {
     next(error);
   }

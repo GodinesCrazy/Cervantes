@@ -61,6 +61,24 @@ function repeatedTemplateRuns(pages: LayoutPage[]) {
   return repeated;
 }
 
+function detectCognitiveOverload(pages: LayoutPage[]) {
+  let overloadCount = 0;
+  let textRun = 0;
+  const visualBreakers = new Set(['figure-page', 'worksheet', 'practice-lab', 'comparison-table', 'case-study', 'chapter-opener', 'cover', 'toc', 'title']);
+  for (const page of pages) {
+    if (visualBreakers.has(page.type)) {
+      textRun = 0;
+    } else {
+      textRun += 1;
+    }
+    if (textRun > 4) {
+      overloadCount += 1;
+      textRun = 0; // reset to avoid double counting the same run immediately
+    }
+  }
+  return overloadCount;
+}
+
 export class EditorialRhythmEngine {
   apply(layout: LayoutDocument): { layout: LayoutDocument; report: EditorialRhythmReport } {
     const normalizedPages = layout.pages.map((page, index) => {
@@ -84,12 +102,14 @@ export class EditorialRhythmEngine {
     const sparsePages = normalizedPages.filter((page) => page.density === 'sparse' && !criticalSparseAllowed.has(page.type)).length;
     const densePages = normalizedPages.filter((page) => page.density === 'dense').length;
     const repeatedRuns = repeatedTemplateRuns(normalizedPages);
+    const cognitiveOverloadRuns = detectCognitiveOverload(normalizedPages);
     const mechanicalTitles = normalizedPages.filter((page) => mechanicalTitle.test(page.title)).length;
     const chapters = Array.from(new Set(normalizedPages.map((page) => page.chapterNumber).filter((chapter): chapter is number => typeof chapter === 'number')));
-    const missingChapterClosures = chapters.filter((chapter) => !normalizedPages.some((page) => page.chapterNumber === chapter && ['chapter-summary', 'case-study', 'comparison-table', 'practice-lab'].includes(page.type)));
+    const missingChapterClosures = chapters.filter((chapter) => !normalizedPages.some((page) => page.chapterNumber === chapter && ['chapter-summary', 'case-study', 'comparison-table', 'practice-lab', 'worksheet'].includes(page.type)));
     const checks = {
       pageCountReasonable: normalizedPages.length >= targetRange.min && normalizedPages.length <= targetRange.max,
       noLongRepeats: repeatedRuns === 0,
+      noCognitiveOverload: cognitiveOverloadRuns === 0,
       noSparseReadingPages: sparsePages === 0,
       noDensePages: densePages === 0,
       noMechanicalTitles: mechanicalTitles === 0,
@@ -99,6 +119,7 @@ export class EditorialRhythmEngine {
     const actions: string[] = [];
     if (!checks.pageCountReasonable) actions.push('Compactar o expandir páginas de lectura hasta el rango editorial recomendado.');
     if (!checks.noLongRepeats) actions.push('Alternar plantillas para evitar más de dos páginas iguales seguidas.');
+    if (!checks.noCognitiveOverload) actions.push('Fatiga visual detectada: Insertar pausas visuales (tablas, imágenes, casos) cada 3-4 páginas de lectura.');
     if (!checks.noSparseReadingPages) actions.push('Fusionar páginas de lectura con poco contenido.');
     if (!checks.noDensePages) actions.push('Dividir páginas sobrecargadas o convertirlas en tabla/caso.');
     if (!checks.noMechanicalTitles) actions.push('Corregir títulos mecánicos de continuación.');

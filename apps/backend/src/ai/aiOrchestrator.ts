@@ -1,4 +1,5 @@
 import { AIProvider, AIResult, AIService } from './aiService';
+import { envConfig, hasProviderCredential } from '../config';
 
 export type AITaskType =
   | 'market-research'
@@ -176,16 +177,16 @@ const envKeyByProvider: Record<AIProvider, string> = {
 
 function modelForProvider(provider: AIProvider) {
   const models: Record<AIProvider, string> = {
-    openai: process.env.OPENAI_MODEL || process.env.AI_MODEL || 'gpt-4o',
-    gemini: process.env.GEMINI_MODEL || process.env.AI_MODEL || 'gemini-2.5-flash',
-    groq: process.env.GROQ_MODEL || process.env.AI_MODEL || 'llama-3.3-70b-versatile',
-    openrouter: process.env.OPENROUTER_MODEL || 'openrouter/free',
-    mistral: process.env.MISTRAL_MODEL || 'mistral-small-latest',
-    cerebras: process.env.CEREBRAS_MODEL || 'gpt-oss-120b',
-    deepseek: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-    together: process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
-    fireworks: process.env.FIREWORKS_MODEL || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
-    cohere: process.env.COHERE_MODEL || 'command-a-03-2025',
+    openai: envConfig.models.openai || envConfig.ai.model || 'gpt-4o',
+    gemini: envConfig.models.gemini || envConfig.ai.model || 'gemini-2.5-flash',
+    groq: envConfig.models.groq || envConfig.ai.model || 'llama-3.3-70b-versatile',
+    openrouter: envConfig.models.openrouter || 'openrouter/free',
+    mistral: envConfig.models.mistral || 'mistral-small-latest',
+    cerebras: envConfig.models.cerebras || 'gpt-oss-120b',
+    deepseek: envConfig.models.deepseek || 'deepseek-chat',
+    together: envConfig.models.together || 'meta-llama/Llama-3.3-70B-Instruct-Turbo-Free',
+    fireworks: envConfig.models.fireworks || 'accounts/fireworks/models/llama-v3p1-70b-instruct',
+    cohere: envConfig.models.cohere || 'command-a-03-2025',
   };
   return models[provider];
 }
@@ -199,12 +200,12 @@ function uniqueProviders(providers: AIProvider[]) {
 }
 
 export function providerChainForTask(taskType: AITaskType) {
-  const configured = (process.env.AI_PROVIDER_ORDER || '')
+  const configured = envConfig.ai.providerOrder
     .split(',')
     .map((provider) => provider.trim().toLowerCase())
     .filter((provider): provider is AIProvider => provider in textProviderMeta);
-  if ((process.env.AI_PROVIDER || '').toLowerCase() !== 'auto') {
-    const selected = (process.env.AI_PROVIDER || '').toLowerCase();
+  if (envConfig.ai.provider !== 'auto') {
+    const selected = envConfig.ai.provider;
     if (selected in textProviderMeta) return [selected as AIProvider];
   }
   return uniqueProviders([...(taskRoutes[taskType] || taskRoutes.general), ...configured]);
@@ -212,7 +213,7 @@ export function providerChainForTask(taskType: AITaskType) {
 
 export function aiProviderInventory(): ProviderStatus[] {
   const textProviders = (Object.keys(textProviderMeta) as AIProvider[]).map((provider) => {
-    const configured = hasUsableValue(process.env[envKeyByProvider[provider]]);
+    const configured = hasProviderCredential(provider);
     return {
       ...textProviderMeta[provider],
       configured,
@@ -262,7 +263,7 @@ export class AIOrchestrator {
     const textReady = inventory.filter((provider) => provider.usableByTextEngine && provider.configured).length;
     const imageReady = inventory.filter((provider) => provider.type === 'image' && provider.configured).length;
     return {
-      mode: process.env.AI_PROVIDER || 'auto',
+      mode: envConfig.ai.provider,
       activeTextProviders: textReady,
       activeImageProviders: imageReady,
       defaultChain: providerChainForTask('general'),
@@ -278,7 +279,7 @@ export class AIOrchestrator {
     let result: AIResult<T> | null = null;
 
     for (const provider of providerChain) {
-      if (!hasUsableValue(process.env[envKeyByProvider[provider]])) continue;
+      if (!hasProviderCredential(provider)) continue;
       result = await ai.generate(templateData, { engine: taskType, prompt, provider });
       if (!result.error && result.provider !== 'template') break;
     }
@@ -303,7 +304,7 @@ export class AIOrchestrator {
   async smokeTest(providers?: string[]) {
     const candidates = providers?.length
       ? providers.filter((provider): provider is AIProvider => provider in textProviderMeta)
-      : (Object.keys(textProviderMeta) as AIProvider[]).filter((provider) => hasUsableValue(process.env[envKeyByProvider[provider]]));
+      : (Object.keys(textProviderMeta) as AIProvider[]).filter((provider) => hasProviderCredential(provider));
     const ai = new AIService();
     const results = [];
     for (const provider of candidates) {

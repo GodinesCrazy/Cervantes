@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState, useCallback } from 'react';
 import { Link, Outlet, useNavigate, useOutletContext, useParams } from 'react-router-dom';
+import { Sparkles } from 'lucide-react';
 import { api } from '../api/client';
 import { DataPanel } from '../components/DataPanel';
 import { Progress, phases } from '../components/Progress';
@@ -28,6 +29,7 @@ export function useProjectContext() {
 export function ProjectShell({ projects, refresh }: { projects: Project[]; refresh: () => Promise<void> }) {
   const { id } = useParams();
   const [loadedProject, setLoadedProject] = useState<Project | null>(null);
+  const [snapshot, setSnapshot] = useState<any>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const summaryProject = projects.find((item) => item.id === Number(id));
   const project = loadedProject || summaryProject;
@@ -41,16 +43,27 @@ export function ProjectShell({ projects, refresh }: { projects: Project[]; refre
   async function refreshProject() {
     await refresh();
     if (Number.isFinite(projectId)) {
-      setLoadedProject(await api.project(projectId));
+      const [freshProject, freshSnapshot] = await Promise.all([
+        api.project(projectId),
+        api.projectSnapshot(projectId)
+      ]);
+      setLoadedProject(freshProject);
+      setSnapshot(freshSnapshot);
     }
   }
 
   useEffect(() => {
     let active = true;
     if (Number.isFinite(projectId)) {
-      api.project(projectId)
-        .then((freshProject) => {
-          if (active) setLoadedProject(freshProject);
+      Promise.all([
+        api.project(projectId),
+        api.projectSnapshot(projectId)
+      ])
+        .then(([freshProject, freshSnapshot]) => {
+          if (active) {
+            setLoadedProject(freshProject);
+            setSnapshot(freshSnapshot);
+          }
         })
         .catch(() => {
           if (active) setLoadedProject(null);
@@ -74,7 +87,7 @@ export function ProjectShell({ projects, refresh }: { projects: Project[]; refre
       {toast && <div className={`toast ${toast.type}`}>{toast.message}</div>}
       <Progress projectId={project.id} currentPhase={project.currentPhase} phaseGates={project.phaseGates} />
       <main className="workPage">
-        <Outlet context={{ project, refresh: refreshProject, showToast }} />
+        <Outlet context={{ project, snapshot, refresh: refreshProject, showToast }} />
       </main>
     </div>
   );
@@ -128,6 +141,31 @@ export function IdeaPage() {
     setRawIdea(project.idea?.rawIdea || '');
   }, [project.idea?.rawIdea]);
 
+  async function handleAutofillIdea() {
+    setBusy(true);
+    try {
+      const { idea } = await api.autofillRandomIdea();
+      setRawIdea(idea);
+    } catch (e) {
+      showToast('Error autocompletando: ' + e, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleAutofillQuestions() {
+    setBusy(true);
+    try {
+      const response = await api.autofillQuestions(project.id) as { answers: Record<string, string> };
+      setAnswers((current) => ({ ...current, ...response.answers }));
+      showToast('Preguntas autocompletadas', 'success');
+    } catch (e) {
+      showToast('Error autocompletando preguntas: ' + e, 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -163,17 +201,29 @@ export function IdeaPage() {
     <>
       <Header title="Idea Intake" project={project} />
       <form className="form" onSubmit={save}>
-        <label>
+        <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
           Idea base
-          <textarea rows={7} value={rawIdea} onChange={(event) => setRawIdea(event.target.value)} />
+          <button type="button" className="button magic" onClick={handleAutofillIdea} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', fontSize: '14px' }}>
+            <Sparkles size={16} />
+            Lluvia de ideas (Autofill)
+          </button>
         </label>
+        <textarea rows={7} value={rawIdea} onChange={(event) => setRawIdea(event.target.value)} />
         <button className="button primary" disabled={busy}>
           {busy && <span className="spinner" />}
           Generar preguntas
         </button>
       </form>
       <section className="panel">
-        <h2>Preguntas inteligentes</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h2 style={{ margin: 0 }}>Preguntas inteligentes</h2>
+          {(project.clarifications || []).length > 0 && (
+            <button type="button" className="button magic" onClick={handleAutofillQuestions} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', fontSize: '14px' }}>
+              <Sparkles size={16} />
+              Responder con IA (Autofill)
+            </button>
+          )}
+        </div>
         {(project.clarifications || []).length === 0 && (
           <p className="muted">Haz clic en Generar preguntas para crear el cuestionario editorial inicial.</p>
         )}
@@ -181,7 +231,7 @@ export function IdeaPage() {
           <label key={question.id}>
             {question.question}
             <input
-              defaultValue={question.answer || ''}
+              value={answers[question.id] !== undefined ? answers[question.id] : (question.answer || '')}
               onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
             />
           </label>
@@ -228,6 +278,19 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
     }
   }
 
+  async function autofix() {
+    setBusy(true);
+    try {
+      await api.autofixAudit(project.id);
+      await refresh();
+      showToast('Autocorrección completada', 'success');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Error al corregir', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function approve() {
     setBusy(true);
     try {
@@ -260,6 +323,9 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
     await refresh();
     setBusy(false);
   }
+  const currentGate = (project.phaseGates || []).find((g) => g.phase === phaseKey);
+  const isApproved = currentGate?.approvalStatus === 'APPROVED';
+  const isNeedsRevision = currentGate?.approvalStatus === 'NEEDS_REVISION';
 
   return (
     <>
@@ -267,26 +333,43 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
       {phaseKey === 'research' && (
         <p className="muted">Esta fase propone el nombre comercial después de evaluar audiencia, promesa y posicionamiento.</p>
       )}
-      <button className="button primary" onClick={run} disabled={busy}>
-        {busy && <span className="spinner" />}
-        {busy ? 'Procesando...' : config.cta}
-      </button>
-      <div className="actions">
+      <div className="actions" style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button className={`button ${!isApproved && !isNeedsRevision ? 'primary' : ''}`} onClick={run} disabled={busy}>
+          {busy && <span className="spinner" />}
+          {busy ? 'Procesando...' : config.cta}
+        </button>
         {phaseKey === 'research' && (
           <button className="button" onClick={verifyResearch} disabled={busy}>
             Marcar research verificado
           </button>
         )}
-        <button className="button" onClick={approve} disabled={busy}>
-          Aprobar gate
+        <button className={`button ${isApproved ? 'primary pulse-animation' : ''}`} onClick={approve} disabled={busy}>
+          {isApproved ? 'Avanzar a la siguiente fase' : 'Aprobar gate manualmente'}
         </button>
+        {phaseKey === 'audit' && isNeedsRevision && (
+          <button type="button" className="button magic" onClick={autofix} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', marginLeft: '12px' }}>
+            <Sparkles size={16} />
+            Autocorrección IA
+          </button>
+        )}
       </div>
 
-      {project[config.panel] && (project.phaseGates || []).find((g) => g.phase === phaseKey)?.status !== 'APPROVED' && (
-        <div className="nextStepBanner">
+      {project[config.panel] && !isApproved && (
+        <div className="nextStepBanner" style={{ borderColor: isNeedsRevision ? '#eab308' : undefined }}>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
           <div>
-            Generación exitosa. Revisa los resultados y haz clic en <strong>"Aprobar gate"</strong> arriba para avanzar.
+            {isNeedsRevision 
+              ? <span>El control de calidad encontró problemas. Usa la <strong>Autocorrección IA</strong> o aprueba manualmente para forzar el avance.</span>
+              : <span>Generación exitosa. Revisa los resultados y haz clic en <strong>"Aprobar gate"</strong> arriba para avanzar.</span>
+            }
+          </div>
+        </div>
+      )}
+      {project[config.panel] && isApproved && (
+        <div className="nextStepBanner" style={{ borderColor: '#22c55e', background: 'rgba(34, 197, 94, 0.05)' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <div>
+            <span style={{ color: '#22c55e', fontWeight: 'bold' }}>¡Validación superada!</span> Todo está en condiciones. Haz clic en <strong>"Aprobar y Continuar"</strong>.
           </div>
         </div>
       )}
@@ -300,10 +383,244 @@ export function PhasePage({ phaseKey }: { phaseKey: string }) {
         />
       ) : phaseKey === 'research' ? (
         <ResearchResult data={project.marketResearch as Record<string, unknown> | null | undefined} />
+      ) : phaseKey === 'editorial-bible' ? (
+        <EditorialBibleResult data={project.editorialBible as Record<string, unknown> | null | undefined} />
+      ) : phaseKey === 'visual-bible' ? (
+        <VisualBibleResult data={project.visualBible as Record<string, unknown> | null | undefined} />
       ) : (
         <DataPanel title="Resultado" data={project[config.panel]} />
       )}
     </>
+  );
+}
+
+function FormattedRules({ data }: { data: unknown }) {
+  const obj = typeof data === 'string' ? parseJsonSafe(data) : data;
+  if (!obj || typeof obj !== 'object') return <span>{String(data || '-')}</span>;
+  return (
+    <ul style={{ paddingLeft: '20px', margin: 0, color: '#a1a1aa', lineHeight: 1.5 }}>
+      {Object.entries(obj).map(([k, v]) => (
+        <li key={k} style={{ marginBottom: '6px' }}>
+          <strong style={{ color: '#d1d5db' }}>{k}:</strong> {Array.isArray(v) ? v.join(' • ') : String(v)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function FormattedStructure({ data }: { data: unknown }) {
+  const obj = typeof data === 'string' ? parseJsonSafe(data) : data;
+  
+  if (Array.isArray(obj)) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {obj.map((item, i) => (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid #a78bfa' }}>
+            <strong style={{ color: '#e5e7eb', display: 'block', marginBottom: '4px' }}>{item.part || `Sección ${i+1}`}</strong>
+            <p style={{ margin: 0, color: '#a1a1aa', fontSize: '14px', lineHeight: 1.5 }}>{item.description || JSON.stringify(item)}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div>{String(data || '-').split('\n').map((line, i) => <p key={i} style={{ margin: '0 0 12px 0', color: '#a1a1aa' }}>{line}</p>)}</div>;
+}
+
+function EditorialBibleResult({ data }: { data?: Record<string, unknown> | null }) {
+  if (!data) return <DataPanel title="Resultado" data={data} />;
+  return (
+    <section className="bibleResult" style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <div className="panel" style={{ background: 'linear-gradient(to right, rgba(139, 92, 246, 0.1), rgba(17, 19, 21, 0.5))', borderLeft: '4px solid #8b5cf6' }}>
+        <span className="eyebrow" style={{ color: '#8b5cf6' }}>Biblia Editorial Oficial</span>
+        <h2 style={{ fontSize: '32px', margin: '8px 0', color: 'white' }}>{String(data.title || 'Sin Título')}</h2>
+        <h3 style={{ fontSize: '20px', fontWeight: 400, color: '#e5e7eb', margin: '0 0 16px 0' }}>{String(data.subtitle || '')}</h3>
+        <p style={{ fontSize: '16px', lineHeight: 1.6, color: '#a1a1aa', margin: 0, maxWidth: '800px' }}><strong>Promesa central:</strong> {String(data.centralPromise || '')}</p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+        <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <h4 style={{ margin: '0 0 16px 0', color: '#a78bfa', fontSize: '18px' }}>Audiencia y Estilo</h4>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <li><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Audiencia objetivo:</strong> <span style={{ color: '#a1a1aa', lineHeight: 1.5 }}>{String(data.audience || '-')}</span></li>
+            <li><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Tono narrativo:</strong> <span style={{ color: '#a1a1aa', lineHeight: 1.5 }}>{String(data.tone || '-')}</span></li>
+            <li><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Estilo de redacción:</strong> <span style={{ color: '#a1a1aa', lineHeight: 1.5 }}>{String(data.style || '-')}</span></li>
+          </ul>
+        </div>
+        
+        <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <h4 style={{ margin: '0 0 16px 0', color: '#a78bfa', fontSize: '18px' }}>Reglas de Cumplimiento Editorial</h4>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <li style={{ borderLeft: '3px solid #3b82f6', paddingLeft: '16px' }}><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Reglas de Contenido:</strong> <FormattedRules data={data.contentRules} /></li>
+            <li style={{ borderLeft: '3px solid #10b981', paddingLeft: '16px' }}><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Promesas y Reclamos:</strong> <FormattedRules data={data.claimsRules} /></li>
+            <li style={{ borderLeft: '3px solid #ef4444', paddingLeft: '16px' }}><strong style={{ color: '#d1d5db', display: 'block', marginBottom: '4px' }}>Límites Éticos:</strong> <FormattedRules data={data.ethicsRules} /></li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h4 style={{ margin: '0 0 20px 0', color: '#a78bfa', fontSize: '20px' }}>Estructura y Extensión</h4>
+        <div style={{ display: 'flex', gap: '32px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 500px', color: '#a1a1aa', lineHeight: 1.6 }}>
+            <strong style={{ color: 'white', display: 'block', marginBottom: '12px' }}>Estructura General:</strong>
+            <FormattedStructure data={data.structure} />
+          </div>
+          <div style={{ background: 'rgba(139, 92, 246, 0.1)', padding: '24px', borderRadius: '12px', minWidth: '280px', border: '1px solid rgba(139, 92, 246, 0.2)' }}>
+            <strong style={{ color: '#a78bfa', display: 'block', marginBottom: '8px', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Extensión Estimada</strong>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: 600, color: 'white' }}>{String(data.estimatedLength || '-').split(',')[0]}</p>
+            {String(data.estimatedLength || '').includes(',') && (
+              <p style={{ margin: '8px 0 0 0', color: '#a1a1aa' }}>{String(data.estimatedLength || '').split(',').slice(1).join(',')}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <DataPanel title="Índice Maestro Propuesto" data={data.tableOfContents} />
+      
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+        <DataPanel title="Plantilla Base de Capítulo" data={data.chapterTemplate} />
+        <DataPanel title="Plantilla Base de Ejercicio" data={data.exerciseTemplate} />
+      </div>
+
+      <DataPanel title="Criterios de Calidad (Checklist final)" data={{ qualityCriteria: data.qualityCriteria, approvalChecklist: data.approvalChecklist }} />
+    </section>
+  );
+}
+
+function parseJsonSafe(val: unknown) {
+  if (typeof val === 'string') {
+    try { return JSON.parse(val); } catch { return null; }
+  }
+  return val;
+}
+
+function VisualBibleResult({ data: rawData }: { data?: Record<string, unknown> | string | null }) {
+  const data = (typeof rawData === 'string' ? parseJsonSafe(rawData) : rawData) as Record<string, unknown> | null;
+  if (!data) return <DataPanel title="Resultado" data={rawData} />;
+  
+  const colorsRaw = parseJsonSafe(data.colorPalette);
+  let colors: Array<{name: string; hex: string}> = [];
+  if (Array.isArray(colorsRaw)) {
+    colors = colorsRaw.map(c => typeof c === 'object' && c !== null ? (c as {name: string; hex: string}) : { name: '', hex: String(c) });
+  } else if (colorsRaw && typeof colorsRaw === 'object') {
+    colors = Object.entries(colorsRaw).map(([k, v]) => ({ name: k, hex: String(v) }));
+  } else if (typeof data.colorPalette === 'string') {
+    colors = data.colorPalette.split(',').map(c => ({ name: '', hex: c.replace(/[^#a-zA-Z0-9]/g, '').trim() })).filter(c => c.hex.startsWith('#') || c.hex.match(/^[a-zA-Z]+$/));
+  }
+  
+  const promptsRaw = parseJsonSafe(data.imagePrompts);
+  const imagePrompts: string[] = Array.isArray(promptsRaw) 
+    ? promptsRaw.map(p => typeof p === 'object' ? JSON.stringify(p) : String(p))
+    : typeof data.imagePrompts === 'string' ? [data.imagePrompts] : [];
+  
+  const typography = parseJsonSafe(data.typography) as Record<string, unknown> | null;
+  const iconographyRaw = parseJsonSafe(data.iconographyStyle) as Record<string, unknown> | null;
+  const iconColor = iconographyRaw?.color || iconographyRaw?.iconColor || '';
+  const iconSet = iconographyRaw?.iconSet || '';
+
+  // Helper to safely stringify any value for display
+  const safeStr = (v: unknown): string => {
+    if (v === null || v === undefined) return '-';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  };
+
+  // Parse sub-objects that DataPanel will receive (they come as JSON strings from backend)
+  const parsedCoverStyle = parseJsonSafe(data.coverStyle);
+  const parsedBackCoverStyle = parseJsonSafe(data.backCoverStyle);
+  const parsedSeparatorStyle = parseJsonSafe(data.separatorStyle);
+  const parsedTableStyle = parseJsonSafe(data.tableStyle);
+  const parsedCalloutStyle = parseJsonSafe(data.calloutStyle);
+  const parsedRequiredAssets = parseJsonSafe(data.requiredAssets);
+  const parsedVisualChecklist = parseJsonSafe(data.visualChecklist);
+  const parsedExportCriteria = parseJsonSafe(data.exportCriteria);
+  
+  return (
+    <section className="bibleResult" style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+      
+      <div className="panel" style={{ background: 'linear-gradient(to right, rgba(16, 185, 129, 0.1), rgba(17, 19, 21, 0.5))', borderLeft: '4px solid #10b981' }}>
+        <span className="eyebrow" style={{ color: '#10b981' }}>Dirección de Arte Oficial</span>
+        <h2 style={{ fontSize: '28px', margin: '8px 0', color: 'white' }}>{String(data.visualConcept || 'Concepto Pendiente')}</h2>
+        <p style={{ fontSize: '16px', lineHeight: 1.6, color: '#a1a1aa', margin: 0, maxWidth: '800px' }}>{String(data.artDirection || '')}</p>
+      </div>
+
+      <div className="panel">
+        <h4 style={{ margin: '0 0 16px 0', color: '#10b981', fontSize: '18px' }}>Paleta de Colores Corporativa</h4>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+          {colors.map((color, idx) => (
+            <div key={idx} style={{ flex: '1 1 120px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ height: '80px', borderRadius: '8px', background: color.hex || '#333', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }} />
+              <span style={{ fontFamily: 'monospace', fontSize: '13px', color: '#a1a1aa', textAlign: 'center' }}>{color.hex}</span>
+              {color.name && <span style={{ fontSize: '12px', color: '#71717a', textAlign: 'center' }}>{color.name}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+        <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <h4 style={{ margin: '0 0 16px 0', color: '#10b981', fontSize: '18px' }}>Tipografía (Branding)</h4>
+          {typography ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ 
+                fontFamily: String(typography.fontFamily || 'sans-serif'),
+                fontSize: '42px',
+                color: 'white',
+                lineHeight: 1.2
+              }}>
+                Aa
+                <div style={{ fontSize: '14px', color: '#a1a1aa', marginTop: '4px', fontFamily: 'Inter' }}>
+                  {safeStr(typography.fontFamily)}
+                </div>
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, color: '#a1a1aa', fontSize: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <li><strong>Tamaño:</strong> {typeof typography.fontSize === 'object' ? Object.entries(typography.fontSize as Record<string, unknown>).map(([k,v]) => `${k}: ${v}px`).join(', ') : safeStr(typography.fontSize)}</li>
+                <li><strong>Interlineado:</strong> {safeStr(typography.lineHeight)}</li>
+              </ul>
+            </div>
+          ) : (
+            <span style={{ color: '#a1a1aa' }}>Pendiente</span>
+          )}
+        </div>
+
+        <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
+          <h4 style={{ margin: '0 0 16px 0', color: '#10b981', fontSize: '18px' }}>Estilo de Iconografía</h4>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '12px', background: String(iconColor) || '#333', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+            </div>
+            <div style={{ color: '#a1a1aa', fontSize: '14px' }}>
+              <strong style={{ color: 'white', display: 'block', fontSize: '16px', marginBottom: '4px' }}>{safeStr(iconSet)}</strong>
+              Color base: {safeStr(iconColor)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel" style={{ background: 'rgba(255,255,255,0.02)' }}>
+        <h4 style={{ margin: '0 0 16px 0', color: '#10b981', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+          Prompts de Generación de Imágenes (IA)
+        </h4>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {imagePrompts.map((prompt, idx) => (
+            <div key={idx} style={{ background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '8px', borderLeft: '2px solid #10b981', color: '#d1d5db', fontSize: '15px', lineHeight: 1.5 }}>
+              {prompt}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+        <DataPanel title="Diseño de Portada" data={parsedCoverStyle} />
+        <DataPanel title="Diseño de Contraportada" data={parsedBackCoverStyle} />
+        <DataPanel title="Estilos de Separadores" data={parsedSeparatorStyle} />
+        <DataPanel title="Estilos de Tablas y Callouts" data={{ tables: parsedTableStyle, callouts: parsedCalloutStyle }} />
+      </div>
+
+      <DataPanel title="Checklist Visual y Assets" data={{ requiredAssets: parsedRequiredAssets, visualChecklist: parsedVisualChecklist, exportCriteria: parsedExportCriteria }} />
+
+    </section>
   );
 }
 
@@ -322,8 +639,8 @@ function ResearchResult({ data }: { data?: Record<string, unknown> | null }) {
         </div>
         <div className="researchScore">
           <span>Oportunidad</span>
-          <strong>{String(data.opportunityScore || '-')}</strong>
-          <small>{String(data.riskLevel || 'Riesgo por revisar')}</small>
+          <strong>{String(data.opportunityScore || '-')} <span style={{ fontSize: '0.6em', opacity: 0.7 }}>/ 10</span></strong>
+          <small>Riesgo: {String(data.riskLevel || '-')} / 10</small>
         </div>
       </div>
       <div className="researchCompactGrid">
@@ -341,7 +658,7 @@ function ResearchResult({ data }: { data?: Record<string, unknown> | null }) {
         </div>
         <div>
           <span>Saturación</span>
-          <strong>{String(data.saturationLevel || '-')}</strong>
+          <strong>{String(data.saturationLevel || '-')} / 10</strong>
         </div>
       </div>
       {titles.length > 0 && (
@@ -482,18 +799,22 @@ function RecoveryResult({
         <pre>{manuscript.slice(0, 3500)}{manuscript.length > 3500 ? '\n\n[...]' : ''}</pre>
       </details>
 
-      <div className="actions">
+      <div className="actions" style={{ marginTop: '24px', display: 'flex', gap: '12px', padding: '16px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px' }}>
         <button className="button" onClick={onRun} disabled={busy}>
           {busy && <span className="spinner" />}
           {busy ? 'Reensamblando...' : 'Reensamblar'}
         </button>
-        {gate?.status !== 'APPROVED' && (
+        {gate?.status !== 'APPROVED' ? (
           <button className="button primary" onClick={onApprove} disabled={busy || !ready}>
-            Aprobar y pasar a diseño visual
+            Aprobar manualmente
           </button>
-        )}
-        {gate?.status === 'APPROVED' && (
-          <button className="button primary pulse-animation" onClick={() => navigate(`/projects/${project.id}/visual-design`)}>
+        ) : (
+          <button 
+            className="button primary pulse-animation" 
+            onClick={() => navigate(`/projects/${project.id}/visual-design`)}
+            disabled={project.phaseGates?.find(g => g.phase === 'visual-bible')?.approvalStatus !== 'APPROVED'}
+            title={project.phaseGates?.find(g => g.phase === 'visual-bible')?.approvalStatus !== 'APPROVED' ? "Requiere aprobar la Biblia Visual" : ""}
+          >
             Continuar a diseño visual
           </button>
         )}
@@ -580,10 +901,29 @@ export function GoNoGoPage() {
         <p className="muted" style={{ marginBottom: '1.5rem' }}>
           Esta fase evalúa matemáticamente el potencial de tu libro basándose en la investigación de mercado. Un score de 70 o más resulta en un <strong>GO</strong> (luz verde para producir). Verifica el puntaje y haz clic en calcular para avanzar a la Fórmula Editorial.
         </p>
-        <label>
-          Score de oportunidad
-          <input type="number" min={0} max={100} value={score} onChange={(event) => setScore(Number(event.target.value))} />
-        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', margin: '2rem 0', background: 'rgba(255,255,255,0.03)', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{
+            width: '100px', height: '100px', borderRadius: '50%', 
+            background: score >= 70 ? `conic-gradient(#10b981 ${score}%, rgba(255,255,255,0.1) ${score}%)` : `conic-gradient(#ef4444 ${score}%, rgba(255,255,255,0.1) ${score}%)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative'
+          }}>
+             <div style={{ position: 'absolute', width: '84px', height: '84px', background: 'var(--bg-primary, #111315)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+               <strong style={{ fontSize: '28px', color: score >= 70 ? '#10b981' : '#ef4444', lineHeight: 1 }}>{score}</strong>
+               <span style={{ fontSize: '10px', color: 'var(--text-muted, #a1a1aa)', marginTop: '2px' }}>/ 100</span>
+             </div>
+          </div>
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '18px' }}>Viabilidad del Proyecto</h3>
+            <p style={{ margin: 0, color: 'var(--text-muted, #a1a1aa)', fontSize: '14px', lineHeight: 1.5, maxWidth: '400px' }}>
+              {score >= 70 
+                ? "¡Luz verde! Tu idea tiene un alto potencial comercial y ha sido aprobada para producción."
+                : "Riesgo alto. El mercado muestra saturación o baja demanda. Te sugerimos iterar tu idea."}
+            </p>
+            <div style={{ marginTop: '12px', display: 'inline-flex', padding: '6px 16px', borderRadius: '100px', background: score >= 70 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)', color: score >= 70 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '14px', letterSpacing: '1px' }}>
+              ESTATUS: {score >= 70 ? 'GO' : 'NO-GO'}
+            </div>
+          </div>
+        </div>
         <button className="button primary" onClick={run} disabled={busy} style={{ marginTop: '1rem' }}>
           {busy && <span className="spinner" />}
           Calcular y Continuar
@@ -619,8 +959,33 @@ export function ChapterPlanPage() {
           Generar plan de capítulos
         </button>
         {(project.chapterPlans || []).length > 0 && (
-          <button className="button" onClick={() => navigate(`/projects/${project.id}/blocks`)}>
+          <button 
+            className="button" 
+            onClick={() => navigate(`/projects/${project.id}/blocks`)}
+            disabled={project.phaseGates?.find(g => g.phase === 'chapter-plan')?.approvalStatus !== 'APPROVED'}
+            title={project.phaseGates?.find(g => g.phase === 'chapter-plan')?.approvalStatus !== 'APPROVED' ? "Requiere aprobar el Índice" : ""}
+          >
             Continuar a Bloques
+          </button>
+        )}
+        {project.phaseGates?.find(g => g.phase === 'chapter-plan')?.generationStatus === 'GENERATED' && 
+         project.phaseGates?.find(g => g.phase === 'chapter-plan')?.approvalStatus !== 'APPROVED' && (
+          <button 
+            className="button success" 
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.setGate(project.id, 'chapter-plan', { approvalStatus: 'APPROVED' });
+                await refresh();
+                showToast('Índice aprobado', 'success');
+              } catch (e: any) {
+                showToast(e.message, 'error');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Aprobar Índice
           </button>
         )}
       </div>
@@ -693,8 +1058,33 @@ export function BlocksPage() {
           Crear bloques desde índice
         </button>
         {(project.manuscriptBlocks || []).length > 0 && (
-          <button className="button" onClick={() => navigate(`/projects/${project.id}/audit`)}>
+          <button 
+            className="button" 
+            onClick={() => navigate(`/projects/${project.id}/audit`)}
+            disabled={project.phaseGates?.find(g => g.phase === 'blocks')?.approvalStatus !== 'APPROVED'}
+            title={project.phaseGates?.find(g => g.phase === 'blocks')?.approvalStatus !== 'APPROVED' ? "Requiere aprobar todos los bloques" : ""}
+          >
             Continuar a Auditoría
+          </button>
+        )}
+        {project.phaseGates?.find(g => g.phase === 'blocks')?.generationStatus === 'GENERATED' && 
+         project.phaseGates?.find(g => g.phase === 'blocks')?.approvalStatus !== 'APPROVED' && (
+          <button 
+            className="button success" 
+            onClick={async () => {
+              setBusy(true);
+              try {
+                await api.setGate(project.id, 'blocks', { approvalStatus: 'APPROVED' });
+                await refresh();
+                showToast('Bloques aprobados', 'success');
+              } catch (e: any) {
+                showToast(e.message, 'error');
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            Aprobar Bloques
           </button>
         )}
       </div>
@@ -709,49 +1099,231 @@ export function BlocksPage() {
         </section>
       )}
       <section className="list">
-        {busy && progressData ? (
-          (project.chapterPlans || []).map((plan, idx) => {
-            const isCurrent = (idx + 1) === progressData.currentChapterIndex;
-            const isDone = (idx + 1) < (progressData.currentChapterIndex || 0);
-            const progress = isDone ? 100 : (isCurrent ? progressData.chapterProgress : 0);
-            return (
-              <div className="projectRow" key={plan.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                  <div>
-                    <strong>{plan.title}</strong>
-                    <small>{plan.estimatedWords || 0} palabras est.</small>
-                  </div>
-                  <span style={{ color: isDone ? 'var(--success)' : isCurrent ? 'var(--accent, #eab308)' : 'var(--muted)' }}>
-                    {isDone ? 'COMPLETADO' : isCurrent ? 'GENERANDO' : 'EN COLA'}
-                  </span>
-                </div>
-                {isCurrent && (
-                  <div style={{ width: '100%', marginTop: '0.75rem' }}>
-                    <div style={{ height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${progress || 0}%`, background: '#eab308', transition: 'width 0.3s' }} />
+        {busy && progressData ? (() => {
+          const plans = project.chapterPlans || [];
+          const currentIdx = progressData.currentChapterIndex || 0;
+          const completedCount = Math.max(0, currentIdx - 1);
+          const totalCount = plans.length;
+          const globalProgress = totalCount > 0 ? Math.round(((completedCount + (progressData.chapterProgress || 0) / 100) / totalCount) * 100) : 0;
+
+          return (
+            <>
+              {/* Global Progress Header */}
+              <div style={{
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.15), rgba(16,185,129,0.1))',
+                border: '1px solid rgba(139,92,246,0.2)',
+                borderRadius: '16px',
+                padding: '24px 28px',
+                marginBottom: '24px',
+                position: 'relative',
+                overflow: 'hidden',
+              }}>
+                {/* Animated background shimmer */}
+                <div style={{
+                  position: 'absolute', inset: 0,
+                  background: 'linear-gradient(90deg, transparent 0%, rgba(139,92,246,0.08) 50%, transparent 100%)',
+                  animation: 'shimmer 2s ease-in-out infinite',
+                }} />
+                <style>{`
+                  @keyframes shimmer {
+                    0%, 100% { transform: translateX(-100%); }
+                    50% { transform: translateX(100%); }
+                  }
+                  @keyframes pulse-glow {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(234,179,8,0.4); }
+                    50% { box-shadow: 0 0 20px 4px rgba(234,179,8,0.2); }
+                  }
+                  @keyframes spin-icon {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                  }
+                  @keyframes fade-in-up {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                `}</style>
+
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <div>
+                      <span style={{ fontSize: '13px', textTransform: 'uppercase', letterSpacing: '1.5px', color: '#a78bfa', fontWeight: 600 }}>
+                        Generando manuscrito
+                      </span>
+                      <h3 style={{ margin: '4px 0 0', fontSize: '22px', color: 'white' }}>
+                        Capítulo {currentIdx} de {totalCount}
+                      </h3>
                     </div>
-                    <small style={{ color: '#eab308', marginTop: '0.4rem', display: 'block', fontWeight: 500 }}>{progressData.message}</small>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '36px', fontWeight: 700, color: '#a78bfa', lineHeight: 1 }}>
+                        {globalProgress}%
+                      </div>
+                      <span style={{ fontSize: '12px', color: '#71717a' }}>progreso total</span>
+                    </div>
                   </div>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          blocks.length === 0 ? (
-            <p className="muted">Aún no hay bloques creados. Haz clic en "Crear bloques desde índice" para generar el esqueleto de tu libro.</p>
-          ) : (
-            blocks.map((block) => (
-              <button className="projectRow clickable" key={block.id} onClick={() => navigate(`/projects/${project.id}/blocks/${block.id}`)}>
-                <div>
-                  <strong>{block.blockTitle}</strong>
-                  <small>
-                    {block.wordCount || 0} palabras
-                    {block.status === 'NEEDS_REVISION' || /template/i.test(block.aiModel || '') ? ' · requiere IA externa válida' : ''}
-                  </small>
+
+                  {/* Global progress bar */}
+                  <div style={{ height: '8px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${globalProgress}%`,
+                      background: 'linear-gradient(90deg, #8b5cf6, #10b981)',
+                      borderRadius: '4px',
+                      transition: 'width 0.5s ease',
+                    }} />
+                  </div>
+
+                  {/* Stats row */}
+                  <div style={{ display: 'flex', gap: '24px', marginTop: '12px', fontSize: '13px', color: '#a1a1aa' }}>
+                    <span>✅ {completedCount} completado{completedCount !== 1 ? 's' : ''}</span>
+                    <span>⏳ {totalCount - completedCount - (currentIdx <= totalCount ? 1 : 0)} en cola</span>
+                    <span>📝 ~{plans.reduce((sum, p) => sum + (p.estimatedWords || 0), 0).toLocaleString()} palabras totales</span>
+                  </div>
                 </div>
-                <span>{block.status}</span>
-              </button>
-            ))
+              </div>
+
+              {/* Per-chapter list */}
+              {plans.map((plan, idx) => {
+                const chapterNum = idx + 1;
+                const isCurrent = chapterNum === currentIdx;
+                const isDone = chapterNum < currentIdx;
+                const isQueued = !isDone && !isCurrent;
+                const chapterProgress = isDone ? 100 : (isCurrent ? (progressData.chapterProgress || 0) : 0);
+
+                return (
+                  <div
+                    key={plan.id}
+                    style={{
+                      display: 'flex', flexDirection: 'column',
+                      padding: '16px 20px',
+                      marginBottom: '8px',
+                      borderRadius: '12px',
+                      border: isCurrent ? '1px solid rgba(234,179,8,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                      background: isCurrent
+                        ? 'linear-gradient(135deg, rgba(234,179,8,0.08), rgba(17,19,21,0.8))'
+                        : isDone
+                          ? 'rgba(16,185,129,0.05)'
+                          : 'rgba(255,255,255,0.02)',
+                      transition: 'all 0.3s ease',
+                      animation: isCurrent ? 'pulse-glow 2s ease-in-out infinite, fade-in-up 0.3s ease' : isDone ? 'fade-in-up 0.3s ease' : 'none',
+                      opacity: isQueued ? 0.5 : 1,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {/* Status icon */}
+                        <div style={{
+                          width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: isDone ? '#10b981' : isCurrent ? '#eab308' : 'rgba(255,255,255,0.08)',
+                          fontSize: '16px', flexShrink: 0,
+                          ...(isCurrent ? { animation: 'spin-icon 2s linear infinite' } : {}),
+                        }}>
+                          {isDone ? '✓' : isCurrent ? '⚙' : <span style={{ color: '#52525b' }}>{chapterNum}</span>}
+                        </div>
+                        <div>
+                          <strong style={{ color: isDone ? '#a7f3d0' : isCurrent ? '#fde68a' : '#71717a', fontSize: '15px' }}>
+                            {plan.title}
+                          </strong>
+                          <div style={{ fontSize: '12px', color: '#71717a', marginTop: '2px' }}>
+                            {plan.estimatedWords?.toLocaleString() || 0} palabras est.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{
+                        fontSize: '11px', fontWeight: 700, letterSpacing: '1px', textTransform: 'uppercase',
+                        padding: '4px 10px', borderRadius: '6px',
+                        background: isDone ? 'rgba(16,185,129,0.15)' : isCurrent ? 'rgba(234,179,8,0.15)' : 'rgba(255,255,255,0.05)',
+                        color: isDone ? '#10b981' : isCurrent ? '#eab308' : '#52525b',
+                      }}>
+                        {isDone ? '✅ Listo' : isCurrent ? '🔄 Generando...' : '⏳ En cola'}
+                      </div>
+                    </div>
+
+                    {/* Progress bar for active chapter */}
+                    {isCurrent && (
+                      <div style={{ width: '100%', marginTop: '12px', animation: 'fade-in-up 0.3s ease' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <small style={{ color: '#eab308', fontWeight: 500, fontSize: '13px' }}>
+                            {progressData.message || 'Procesando...'}
+                          </small>
+                          <small style={{ color: '#eab308', fontWeight: 700, fontSize: '13px' }}>
+                            {chapterProgress}%
+                          </small>
+                        </div>
+                        <div style={{ height: '6px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${chapterProgress}%`,
+                            background: 'linear-gradient(90deg, #eab308, #f59e0b)',
+                            borderRadius: '3px',
+                            transition: 'width 0.4s ease',
+                          }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          );
+        })() : (
+          blocks.length === 0 ? (
+            <div style={{
+              textAlign: 'center', padding: '60px 24px',
+              background: 'rgba(255,255,255,0.02)', borderRadius: '16px',
+              border: '1px dashed rgba(255,255,255,0.1)',
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>📖</div>
+              <h3 style={{ color: 'white', margin: '0 0 8px' }}>Sin bloques aún</h3>
+              <p className="muted">Haz clic en "Crear bloques desde índice" para generar el manuscrito completo de tu libro.</p>
+            </div>
+          ) : (
+            blocks.map((block, idx) => {
+              const wordCount = block.wordCount || 0;
+              const maxWords = Math.max(...blocks.map(b => b.wordCount || 0), 1);
+              const widthPct = Math.round((wordCount / maxWords) * 100);
+              const needsFix = block.status === 'NEEDS_REVISION' || /template/i.test(block.aiModel || '');
+
+              return (
+                <button
+                  className="projectRow clickable"
+                  key={block.id}
+                  onClick={() => navigate(`/projects/${project.id}/blocks/${block.id}`)}
+                  style={{ position: 'relative', overflow: 'hidden' }}
+                >
+                  {/* Background bar showing relative word count */}
+                  <div style={{
+                    position: 'absolute', left: 0, top: 0, bottom: 0,
+                    width: `${widthPct}%`,
+                    background: needsFix
+                      ? 'linear-gradient(90deg, rgba(239,68,68,0.06), transparent)'
+                      : 'linear-gradient(90deg, rgba(139,92,246,0.08), transparent)',
+                    transition: 'width 0.5s ease',
+                    pointerEvents: 'none',
+                  }} />
+                  <div style={{ position: 'relative', zIndex: 1 }}>
+                    <strong>{block.blockTitle}</strong>
+                    <small>
+                      {wordCount.toLocaleString()} palabras
+                      {needsFix ? ' · ⚠️ requiere IA externa válida' : ''}
+                    </small>
+                  </div>
+                  <span style={{
+                    position: 'relative', zIndex: 1,
+                    fontSize: '11px', fontWeight: 700, letterSpacing: '1px',
+                    padding: '4px 10px', borderRadius: '6px',
+                    background: block.status === 'APPROVED' ? 'rgba(16,185,129,0.15)'
+                      : needsFix ? 'rgba(239,68,68,0.15)'
+                      : 'rgba(139,92,246,0.15)',
+                    color: block.status === 'APPROVED' ? '#10b981'
+                      : needsFix ? '#ef4444'
+                      : '#a78bfa',
+                  }}>
+                    {block.status === 'APPROVED' ? '✅ Aprobado' : needsFix ? '⚠️ Revisar' : '📝 Borrador'}
+                  </span>
+                </button>
+              );
+            })
           )
         )}
       </section>
@@ -932,7 +1504,7 @@ export function VisualDesignPage() {
   return (
     <>
       <Header title="Diseño visual" project={project} eyebrow="Diseño visual" />
-      <DataPanel title="Biblia visual y prompts" data={project.visualBible} />
+      <VisualBibleResult data={project.visualBible as Record<string, unknown> | null | undefined} />
       <section className="panel">
         <div className="panelHeader">
           <div>
@@ -943,8 +1515,13 @@ export function VisualDesignPage() {
                 : `${(project.visualAssets || []).filter((asset) => !approvedIds.has(asset.id)).length} assets pendientes de aprobación.`}
             </p>
           </div>
-          {allAssetsApproved && (
-            <button className="button primary" onClick={() => navigate(`/projects/${project.id}/quality`)} type="button">
+          {(project.phaseGates || []).some((g) => g.phase === 'metadata' && g.generationStatus === 'GENERATED') && (
+            <button 
+              className="button primary" 
+              onClick={() => navigate(`/projects/${project.id}/quality`)} 
+              type="button"
+              disabled={project.phaseGates?.find(g => g.phase === 'metadata')?.approvalStatus !== 'APPROVED'}
+            >
               Continuar a Quality gates
             </button>
           )}
@@ -965,20 +1542,35 @@ export function VisualDesignPage() {
           )}
           {(project.visualAssets || []).map((asset) => (
             <article className={`visualCard ${approvedIds.has(asset.id) ? 'approved' : ''}`} key={asset.id}>
-              <div className="visualCardImage" onClick={() => setExpandedAsset(asset)}>
-                <VisualAssetPreview projectId={project.id} asset={asset} cacheKey={project.updatedAt} />
-                <div className="visualCardOverlay">
-                  <button className="iconButton" title="Generar con IA (Puter)" onClick={(e) => { e.stopPropagation(); generateWithAI(asset); }} disabled={aiBusyId === asset.id || regeneratingId === asset.id || busyId === asset.id}>
-                    {aiBusyId === asset.id ? '⏳' : '✨'}
-                  </button>
-                  <button className="iconButton" title="Regenerar SVG Local" onClick={(e) => { e.stopPropagation(); regenerateAsset(asset.id); }} disabled={regeneratingId === asset.id || busyId === asset.id}>
-                    {regeneratingId === asset.id ? '⏳' : '🔄'}
-                  </button>
-                  <button className="iconButton approveBtn" title="Aprobar para producción" onClick={(e) => { e.stopPropagation(); approveAsset(asset.id); }} disabled={busyId === asset.id || approvedIds.has(asset.id) || regeneratingId === asset.id}>
-                    {busyId === asset.id ? '⏳' : approvedIds.has(asset.id) ? '✅' : 'Aprobar'}
-                  </button>
-                </div>
-              </div>
+              {(() => {
+                const isStructural = ['separator', 'icons', 'worksheet', 'mockup'].includes(asset.assetType);
+                const hasExternalOverride = asset.externalStatus === 'GENERATED';
+                return (
+                  <div className="visualCardImage" onClick={() => setExpandedAsset(asset)}>
+                    <VisualAssetPreview projectId={project.id} asset={asset} cacheKey={project.updatedAt} />
+                    <div className="visualCardOverlay">
+                      {!isStructural && (
+                        <>
+                          <button className="iconButton" title="Generar con IA (Puter)" onClick={(e) => { e.stopPropagation(); generateWithAI(asset); }} disabled={aiBusyId === asset.id || regeneratingId === asset.id || busyId === asset.id}>
+                            {aiBusyId === asset.id ? '⏳' : '✨'}
+                          </button>
+                          <button className="iconButton" title="Generar imagen premium (fal.ai/Stability)" onClick={(e) => { e.stopPropagation(); regenerateAsset(asset.id); }} disabled={regeneratingId === asset.id || busyId === asset.id}>
+                            {regeneratingId === asset.id ? '⏳' : '🔄'}
+                          </button>
+                        </>
+                      )}
+                      {hasExternalOverride && (
+                        <button className="iconButton" title="Restaurar SVG original" style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#fca5a5' }} onClick={(e) => { e.stopPropagation(); useLocalFallback(asset); }} disabled={regeneratingId === asset.id || busyId === asset.id}>
+                          {regeneratingId === asset.id ? '⏳' : '↺'}
+                        </button>
+                      )}
+                      <button className="iconButton approveBtn" title="Aprobar para producción" onClick={(e) => { e.stopPropagation(); approveAsset(asset.id); }} disabled={busyId === asset.id || approvedIds.has(asset.id) || regeneratingId === asset.id}>
+                        {busyId === asset.id ? '⏳' : approvedIds.has(asset.id) ? '✅' : 'Aprobar'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="visualCardMeta">
                 <strong>{asset.name}</strong>
                 <small>{visualAssetSummary(asset)}</small>
@@ -1374,8 +1966,8 @@ export function PreviewPage() {
                 className={`thumbnail-card ${selectedPageId === page.id ? 'selected' : ''}`}
                 onClick={() => setSelectedPageId(page.id)}
               >
-                <div className="thumbnail-preview">
-                   <iframe src={`/api/projects/${project.id}/preview#page-${i+1}`} scrolling="no" tabIndex={-1} />
+                <div className="thumbnail-preview" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1e1e1e', color: '#666', fontSize: '0.7rem', borderBottom: '1px solid #333' }}>
+                   {page.type.includes('cover') || page.type.includes('opener') || page.type.includes('figure') ? '🖼️ Visual' : '📄 Texto'}
                 </div>
                 <div className="thumbnail-info">
                   <span className="page-num">Pág {i+1}</span>
@@ -1740,7 +2332,7 @@ type ProductionTask = {
 };
 
 function gateStatus(project: Project, phase: string) {
-  return (project.phaseGates || []).find((gate) => gate.phase === phase)?.status || 'PENDING';
+  return (project.phaseGates || []).find((gate) => gate.phase === phase)?.approvalStatus || 'PENDING';
 }
 
 function hasCommercialMetadata(project: Project) {

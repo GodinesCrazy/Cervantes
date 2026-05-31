@@ -14,10 +14,29 @@ const genericSignals = [
   /puede ayudar\b/gi,
   /de manera efectiva\b/gi,
   /es fundamental\b/gi,
+  /en este cap[íi]tulo\b/gi,
+  /como ya hemos visto\b/gi,
+  /es crucial recordar\b/gi,
+  /juega un papel vital\b/gi,
+  /en la actualidad\b/gi,
+  /en el mundo moderno\b/gi,
 ];
-const aiSignals = [/como modelo/i, /en este texto/i, /a continuaci[oó]n/i, /prompt/i, /generado por ia/i];
-const markdownSignals = [/\*\*/, /!\[/, /\|---\|/];
-const riskyClaims = [/garantiza/i, /cura/i, /elimina por completo/i, /sin riesgo/i, /resultados asegurados/i];
+const aiSignals = [/como modelo/i, /en este texto/i, /a continuaci[oó]n/i, /prompt/i, /generado por ia/i, /sumerj[áa]monos/i, /embarqu[ée]monos/i, /en resumen/i, /recuerda que/i];
+const markdownSignals = [/\*\*/, /!\[/, /\|---\|/, /```/];
+const riskyClaims = [
+  /garantiza/i, 
+  /cura(?!c)/i, 
+  /elimina por completo/i, 
+  /sin riesgo/i, 
+  /resultados asegurados/i,
+  /secreto infalible/i,
+  /hacerte rico/i,
+  /milagroso/i,
+  /la [uú]nica forma/i,
+  /nunca fallar[aá]/i,
+  /100% efectivo/i,
+  /soluci[oó]n definitiva/i,
+];
 
 export class EditorialDepthInspector {
   inspect(layout: LayoutDocument): EditorialDepthReport {

@@ -79,6 +79,8 @@ export type PhaseGate = {
   id: number;
   phase: string;
   status: string;
+  generationStatus?: string;
+  approvalStatus?: string;
   notes?: string | null;
   overrideReason?: string | null;
   approvedAt?: string | null;

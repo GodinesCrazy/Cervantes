@@ -1,11 +1,24 @@
 import { FormEvent, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Sparkles } from 'lucide-react';
 import { api } from '../api/client';
 
 export function NewProject() {
   const navigate = useNavigate();
   const [rawIdea, setRawIdea] = useState('');
   const [busy, setBusy] = useState(false);
+
+  async function handleAutofill() {
+    setBusy(true);
+    try {
+      const { idea } = await api.autofillRandomIdea();
+      setRawIdea(idea);
+    } catch (e) {
+      alert('Error autocompletando: ' + e);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -24,15 +37,19 @@ export function NewProject() {
         </div>
       </header>
       <form className="form" onSubmit={submit}>
-        <label>
+        <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
           Idea base
-          <textarea
+          <button type="button" className="button magic" onClick={handleAutofill} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 12px', fontSize: '14px' }}>
+            <Sparkles size={16} />
+            Lluvia de ideas (Autofill)
+          </button>
+        </label>
+        <textarea
             rows={8}
             value={rawIdea}
             onChange={(event) => setRawIdea(event.target.value)}
             placeholder="Ejemplo: Un ebook premium sobre el cuidado integral de perros para dueños primerizos, con ejercicios, checklist y enfoque visual."
           />
-        </label>
         <p className="muted">
           El nombre comercial se recomendará después de la investigación de mercado, con alternativas y justificación.
         </p>

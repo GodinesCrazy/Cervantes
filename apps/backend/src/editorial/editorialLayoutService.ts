@@ -14,6 +14,8 @@ import { ProfessionalEbookInspector, type ProfessionalEbookReport } from './prof
 import { EditorialPageComposer, type PersistedPageState } from './pageComposer';
 import { EditorialRhythmEngine, type EditorialRhythmReport } from './rhythmEngine';
 import { EditorialRhythmInspector } from './rhythmInspector';
+import { renderChapterToHtml } from './blockRenderer';
+import { ChapterData } from './schema';
 
 const root = path.resolve(__dirname, '../../../..');
 const exportDir = path.join(root, 'storage', 'exports');
@@ -68,68 +70,82 @@ export class EditorialLayoutService {
     });
     if (!project) throw new Error('Project not found');
     const title = project.metadataPackage?.commercialTitle || project.marketResearch?.recommendedTitle || project.name;
-    const subtitle = project.metadataPackage?.subtitle || 'Guia premium practica y visual';
+    const subtitle = project.metadataPackage?.subtitle || 'Guía premium práctica y visual';
+    
+    const parts: string[] = [];
+    parts.push(`![Portada editorial](assets/cover.svg)\n\n# ${title}\n\n## ${subtitle}\n\n**Edición:** Premium Cervantes\n**Idioma principal:** Español\n**Declaración IA:** Contenido asistido por herramientas de IA, estructurado y revisado editorialmente.\n\n---`);
+
+    parts.push(`# Front matter\n\n## Promesa editorial\n\nEste libro convierte una idea especializada en una experiencia de lectura clara, visual, aplicable y comercialmente publicable.\n\n## Para quién es\n\n${project.marketResearch?.audience || 'Lectores que buscan una guía práctica, confiable y visualmente cuidada.'}\n\n---`);
+
     const toc = project.chapterPlans.map((chapter) => `${chapter.chapterNumber}. ${chapter.title}`).join('\n');
-    const body = project.manuscriptBlocks
-      .map((block) => this.rewriteEngine.rewriteBlock(block.blockTitle, block.content, project.name))
-      .join('\n\n---\n\n');
-    return this.rewriteEngine.rewriteMarkdown(`![Portada editorial](assets/cover.svg)
+    parts.push(`# Índice\n\n${toc}\n\n---`);
+    parts.push(`# Tabla de decisión\n\n![Figura editorial](assets/figure-map.svg)\n\n---`);
 
-# ${title}
+    for (const block of project.manuscriptBlocks) {
+      if (!block.content) continue;
+      try {
+        const parsed = JSON.parse(block.content) as ChapterData;
+        parts.push(`# ${parsed.chapterTitle}`);
+        if (parsed.objective) parts.push(`**Objetivo:** ${parsed.objective}`);
+        if (parsed.opening) parts.push(parsed.opening);
+        
+        for (const b of parsed.blocks) {
+          if (b.type === 'paragraph') parts.push(b.text);
+          else if (b.type === 'checklist') {
+            if (b.heading) parts.push(`## ${b.heading}`);
+            b.items.forEach(item => parts.push(`- ${item}`));
+          }
+          else if (b.type === 'table') {
+            if (b.heading) parts.push(`## ${b.heading}`);
+            parts.push(`| ${b.columns.join(' | ')} |`);
+            parts.push(`| ${b.columns.map(() => '---').join(' | ')} |`);
+            b.rows.forEach(r => parts.push(`| ${r.join(' | ')} |`));
+          }
+          else if (b.type === 'expert_tip') {
+            if (b.heading) parts.push(`### 💡 ${b.heading}`);
+            parts.push(`> ${b.body}\n> *Fuente: ${b.source || 'N/A'}*`);
+          }
+          else if (b.type === 'case_study') {
+            if (b.heading) parts.push(`## ${b.heading}`);
+            parts.push(`**Situación:** ${b.situation}\n**Decisión:** ${b.decision}\n**Resultado:** ${b.result}`);
+          }
+          else if (b.type === 'exercise') {
+            if (b.heading) parts.push(`## 🛠️ ${b.heading}`);
+            parts.push(b.instructions);
+            b.fields.forEach(f => parts.push(`- [ ] ${f}`));
+          }
+          else if (b.type === 'inline_image') {
+            if (b.localUrl) {
+              parts.push(`![Figura interior](${b.localUrl})\n*${b.caption || 'Ilustración'}*`);
+            }
+            // Si no hay imagen generada, omitimos el bloque visual para no imprimir prompts en inglés.
+          }
+        }
+        
+        parts.push(`## Resumen del Capítulo\n${parsed.summary}`);
+        if (parsed.action_closing) {
+          parts.push(`### Cierre Accionable`);
+          parts.push(`- **Idea Clave:** ${parsed.action_closing.key_idea}`);
+          parts.push(`- **Acción:** ${parsed.action_closing.today_action}`);
+          parts.push(`- **Error común:** ${parsed.action_closing.common_error}`);
+          parts.push(`- **Pregunta:** ${parsed.action_closing.follow_up_question}`);
+        }
+        
+        parts.push(`---`);
+      } catch {
+        // Fallback: si el contenido no es JSON válido, forzamos un marcador de error claro
+        // Esto será detectado inmediatamente por el schemaValidator o contentSanitizer
+        // y provocará una reescritura automática por parte de la IA.
+        parts.push(`# ${block.blockTitle} (Requiere Recuperación IA)`);
+        parts.push(`> ⚠️ **Error de Estructura**: Este bloque falló la validación JSON. La IA lo regenerará automáticamente durante el control de calidad.`);
+        parts.push(`\`\`\`json\n${String(block.content || '').trim()}\n\`\`\``);
+        parts.push(`---`);
+      }
+    }
 
-## ${subtitle}
 
-**Edicion:** Premium Cervantes
-**Idioma principal:** Espanol
-**Declaracion IA:** Contenido asistido por herramientas de IA, estructurado y revisado editorialmente.
 
----
-
-# Front matter
-
-## Promesa editorial
-
-Este libro convierte una idea especializada en una experiencia de lectura clara, visual, aplicable y comercialmente publicable.
-
-## Para quien es
-
-${project.marketResearch?.audience || 'Lectores que buscan una guia practica, confiable y visualmente cuidada.'}
-
----
-
-# Indice
-
-${toc}
-
----
-
-# Tabla de decisión
-
-![Figura editorial](assets/figure-map.svg)
-
----
-
-${body}
-
----
-
-# Apendice A: Checklist editorial
-
-| Area | Criterio premium | Estado esperado |
-|---|---|---|
-| Estructura | Front matter, capitulos, ejercicios y apendices | Completo |
-| Visual | Portada, figuras, tablas, worksheets y jerarquia | Completo |
-| Comercial | Titulo sugerido, promesa, metadata y precio | Revisado |
-| Compliance | Declaracion IA y claims acotados | Revisado |
-
-# Apendice B: Resumen en ingles
-
-This ebook is designed as a premium practical guide with a clear method, visual support, exercises, and publishing-ready metadata.
-
-# Creditos visuales
-
-Assets SVG generados localmente por Cervantes como elementos editables y reemplazables.
-`);
+    return parts.join('\n\n');
   }
 
   async buildLayoutDocument(projectId: number, markdown?: string, preferredStyle?: string | null) {

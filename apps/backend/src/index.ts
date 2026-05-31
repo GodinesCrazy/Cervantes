@@ -5,7 +5,9 @@ import projectsRouter from './routes/projects';
 import settingsRouter from './routes/settings';
 import { prisma } from './prisma';
 
-dotenv.config({ path: '../../.env' });
+import path from 'path';
+
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 dotenv.config();
 
 const app = express();
@@ -28,7 +30,7 @@ app.use((error: Error & { status?: number }, _req: express.Request, res: express
 });
 
 const server = app.listen(port, () => {
-  console.log(`Cervantes API listening on http://localhost:${port}`);
+  console.log(`Cervantes API listening on http://localhost:${port} (reloaded)`);
 });
 
 process.on('SIGINT', async () => {

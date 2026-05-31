@@ -30,23 +30,25 @@ function renderPage(page: LayoutPage, assetBase: string, index: number, layout: 
     return `<section id="${pageId}" class="book-page title-page" data-page-type="title"><p class="kicker">Edicion premium</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><img class="separator-art" src="${assetUrl('separator', assetBase, layout)}" alt=""></section>`;
   }
   if (page.type === 'toc') {
-    return `<section id="${pageId}" class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase, layout)}" alt="Iconografia editorial"><ol>${page.content.map((item) => `<li>${inline(item)}</li>`).join('')}</ol></section>`;
+    return `<section id="${pageId}" class="book-page toc-page" data-page-type="toc"><p class="kicker">Mapa de lectura</p><h1>${inline(page.title)}</h1><img class="icon-strip" src="${assetUrl('icons', assetBase, layout)}" alt="Iconografia editorial"><ol class="toc-list">${page.content.map((item, i) => `<li><span class="toc-title">${inline(item)}</span><span class="toc-dots"></span><span class="toc-number" data-chapter="${i+1}">--</span></li>`).join('')}</ol></section>`;
   }
   if (page.type === 'chapter-opener') {
     return `<section id="${pageId}" class="book-page chapter-opener" data-page-type="chapter-opener"><img class="chapter-art" src="${assetUrl('chapter-opener', assetBase, layout)}" alt="Apertura de capitulo"><p class="chapter-label">Capitulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1><p class="standfirst">${inline(page.subtitle || '')}</p></section>`;
   }
   if (page.type === 'figure-page') {
-    return `<section id="${pageId}" class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${assetUrl('figure-map', assetBase, layout)}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
+    const imgSrc = page.localUrl || assetUrl('figure-map', assetBase, layout);
+    return `<section id="${pageId}" class="book-page figure-page" data-page-type="figure-page"><p class="kicker">Figura editorial</p><h1>${inline(page.title)}</h1><figure><img src="${imgSrc}" alt="Mapa conceptual"><figcaption>${inline(page.subtitle || 'Mapa visual')}</figcaption></figure>${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'worksheet') {
     return `<section id="${pageId}" class="book-page worksheet-page" data-page-type="worksheet"><p class="kicker">Aplicacion</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase, layout)}" alt="Worksheet imprimible">${page.content.map((item) => `<p class="bullet"><span></span>${inline(item)}</p>`).join('')}</section>`;
   }
   if (page.type === 'case-study') {
-    return `<section id="${pageId}" class="book-page case-study-page" data-page-type="case-study"><p class="kicker">Caso aplicado</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><div class="case-box">${page.content.map((item, itemIndex) => `<p><strong>${['Situación', 'Decisión', 'Resultado'][itemIndex] || 'Nota'}:</strong> ${inline(item.replace(/^[^:]+:\s*/, ''))}</p>`).join('')}</div><img class="icon-strip compact" src="${assetUrl('icons', assetBase, layout)}" alt=""></section>`;
+    return `<section id="${pageId}" class="book-page case-study-page" data-page-type="case-study"><p class="kicker">Caso aplicado</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><div class="case-box">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</div><img class="icon-strip compact" src="${assetUrl('icons', assetBase, layout)}" alt=""></section>`;
   }
   if (page.type === 'comparison-table') {
-    const cells = page.content.length ? page.content : ['Señal', 'Criterio', 'Acción', 'Revisión'];
-    return `<section id="${pageId}" class="book-page table-page" data-page-type="comparison-table"><p class="kicker">Tabla editorial</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><table class="decision-table"><thead><tr>${cells.map((item) => `<th>${inline(item)}</th>`).join('')}</tr></thead><tbody>${[1, 2, 3].map((row) => `<tr>${cells.map((_, col) => `<td>${inline(['Observar', 'Interpretar', 'Aplicar', 'Revisar'][(row + col) % 4])}</td>`).join('')}</tr>`).join('')}</tbody></table><p class="editorial-note">Usa esta tabla como puente entre lectura y decisión práctica.</p></section>`;
+    const cells = page.content.length ? page.content : ['Columna 1'];
+    const rows = page.tableRows && page.tableRows.length ? page.tableRows : [['Fila 1']];
+    return `<section id="${pageId}" class="book-page table-page" data-page-type="comparison-table"><p class="kicker">Tabla editorial</p><h1>${inline(page.title)}</h1><h2>${inline(page.subtitle || '')}</h2><table class="decision-table"><thead><tr>${cells.map((item) => `<th>${inline(item)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map(cell => `<td>${inline(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table></section>`;
   }
   if (page.type === 'practice-lab') {
     return `<section id="${pageId}" class="book-page practice-page" data-page-type="practice-lab"><p class="kicker">Práctica guiada</p><h1>${inline(page.title)}</h1><img class="worksheet-art" src="${assetUrl('worksheet', assetBase, layout)}" alt="Worksheet imprimible"><div class="practice-grid">${page.content.map((item) => `<div><span></span>${inline(item)}</div>`).join('')}</div></section>`;
@@ -61,9 +63,8 @@ function renderPage(page: LayoutPage, assetBase: string, index: number, layout: 
     return `<section id="${pageId}" class="book-page credits-page" data-page-type="credits"><p class="kicker">Cierre</p><h1>${inline(page.title)}</h1><img class="mockup-art" src="${assetUrl('mockup', assetBase, layout)}" alt="Mockup editorial">${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}</section>`;
   }
   const spreadClass = page.type === 'reading-spread' ? ' reading-spread' : '';
-  const note = page.variant === 2 ? '<blockquote>Convierte la lectura en una acción observable antes de pasar al siguiente tramo.</blockquote>' : '<aside class="margin-note"><strong>Guía de lectura</strong><span>Observa, decide, aplica y revisa.</span></aside>';
   const separator = page.assetRole === 'separator' ? `<img class="separator-inline" src="${assetUrl('separator', assetBase, layout)}" alt="">` : '';
-  return `<section id="${pageId}" class="book-page reading-page${spreadClass} variant-${page.variant || 0}" data-page-type="${page.type}"><p class="chapter-label">Capítulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1>${separator}${note}${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
+  return `<section id="${pageId}" class="book-page reading-page${spreadClass} variant-${page.variant || 0}" data-page-type="${page.type}"><p class="chapter-label">Capítulo ${page.chapterNumber || ''}</p><h1>${inline(page.title)}</h1>${separator}${page.content.map((item) => `<p>${inline(item)}</p>`).join('')}<div class="page-folio">${index + 1}</div></section>`;
 }
 
 function css(theme: EditorialTheme) {
@@ -78,10 +79,10 @@ body{margin:0;background:#141414;color:var(--ink);font-family:${theme.typography
 .book-page{padding:25mm 24mm 22mm;background:radial-gradient(circle at 20% 12%,rgba(255,255,255,.86),rgba(255,255,255,0) 34%),linear-gradient(90deg,rgba(0,0,0,.045),transparent 24mm),repeating-linear-gradient(100deg,rgba(90,70,30,.04) 0 1px,transparent 1px 12px),var(--paper)}
 .book-page:before{content:"";position:absolute;inset:9mm;border:1px solid rgba(183,146,54,.48);pointer-events:none}
 .book-page:after{content:"Cervantes";position:absolute;top:10mm;left:24mm;right:24mm;border-bottom:1px solid rgba(25,23,20,.2);padding-bottom:3mm;text-align:center;font:11px ${theme.typography.sans};letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
-h1{font-size:35px;line-height:1.08;margin:9mm 0 6mm;color:var(--ink);text-wrap:balance}
-h2{font-size:22px;line-height:1.2;margin:6mm 0;color:#28231b}
+h1{font-size:35px;line-height:1.08;margin:9mm 0 6mm;color:var(--ink);text-wrap:balance;overflow-wrap:break-word;word-wrap:break-word;hyphens:auto}
+h2{font-size:22px;line-height:1.2;margin:6mm 0;color:#28231b;overflow-wrap:break-word;hyphens:auto}
 h2:after{content:"";display:block;width:30mm;height:1px;background:var(--gold);margin-top:3mm}
-p{font-size:14.2px;margin:0 0 4.2mm;max-width:144mm}
+p{font-size:14.2px;margin:0 0 4.2mm;max-width:144mm;text-align:justify}
 strong{font-weight:700;color:#111}em{color:var(--muted)}
 .kicker,.chapter-label{font:700 12px ${theme.typography.sans};letter-spacing:3px;text-transform:uppercase;color:var(--gold);margin:0 0 7mm}
 .title-page{display:grid;align-content:center;text-align:center;background:linear-gradient(180deg,var(--dark),#1f2827)}
@@ -89,9 +90,9 @@ strong{font-weight:700;color:#111}em{color:var(--muted)}
 .title-page h1{font-size:54px;color:var(--paper2);max-width:142mm;margin:0 auto 7mm}
 .title-page h2{color:#e6d3a6;max-width:132mm;margin:0 auto}.title-page h2:after{margin-left:auto;margin-right:auto}
 .separator-art{width:130mm;margin:10mm auto 0;display:block}.icon-strip{width:100%;margin:0 0 8mm;border:2px solid var(--gold)}
-.toc-page ol{display:grid;gap:4mm;margin:0;padding:0;list-style:none}.toc-page li{border-bottom:1px solid var(--line);padding:3mm 0;font-size:18px}
-.chapter-opener{display:grid;align-content:end;background:var(--dark);color:var(--paper2)}.chapter-opener:before{border-color:rgba(183,146,54,.7)}.chapter-opener:after{color:var(--gold);border-color:rgba(183,146,54,.32)}
-.chapter-opener h1{color:var(--paper2);font-size:48px}.chapter-opener .standfirst{color:#e6d3a6;font-size:18px}.chapter-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.58}
+.toc-page ol{display:grid;gap:4mm;margin:0;padding:0;list-style:none}.toc-page li{display:flex;align-items:baseline;padding:3mm 0;font-size:18px}.toc-dots{flex:1;border-bottom:2px dotted var(--line);margin:0 2mm}.toc-number{font-weight:bold;font-family:${theme.typography.sans}}
+.chapter-opener{display:grid;align-content:end;background:var(--dark);color:var(--paper2);padding:20mm;overflow:hidden}.chapter-opener:before{border-color:rgba(183,146,54,.7)}.chapter-opener:after{color:var(--gold);border-color:rgba(183,146,54,.32)}
+.chapter-opener h1{color:var(--paper2);font-size:clamp(32px, 8vw, 48px);line-height:1.1;overflow-wrap:break-word}.chapter-opener .standfirst{color:#e6d3a6;font-size:18px}.chapter-art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.58}
 .reading-page p:nth-of-type(2)::first-letter{float:left;font-size:56px;line-height:.85;padding:4px 8px 0 0;color:var(--gold)}
 .reading-spread{padding-left:22mm;padding-right:22mm}.reading-spread p{font-size:13.7px;max-width:158mm}.reading-spread h1{font-size:31px}
 blockquote{margin:0 0 6mm 8mm;float:right;width:48mm;border-left:4px solid var(--gold);padding:4mm 0 4mm 5mm;font:italic 15px Georgia;color:#3b3429;background:rgba(255,255,255,.36)}

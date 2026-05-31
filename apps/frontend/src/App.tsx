@@ -41,7 +41,7 @@ export default function App() {
     <>
       {error && <div className="toast">{error}</div>}
       <Routes>
-        <Route path="/" element={<Dashboard projects={projects} />} />
+        <Route path="/" element={<Dashboard projects={projects} refresh={refresh} />} />
         <Route path="/projects/new" element={<NewProject />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/projects/:id" element={<ProjectShell projects={projects} refresh={refresh} />}>
